@@ -1,0 +1,3134 @@
+<!-- DESKTOP-ONLY APPLICATION. This tool is built and used on a desktop computer.
+     Do NOT make any mobile/touch/responsive adaptations, assumptions, or "improvements"
+     unless explicitly instructed to do so. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Р · нарезка</title>
+<style>
+  :root{
+    --bg:#0a0c0b;
+    --panel:#12140f;
+    --panel2:#181b14;
+    --hair:#26291f;
+    --ink:#e9e4d8;
+    --muted:#6f7268;
+    --green:#6bff9e;
+    --green-dim:#274a35;
+    --amber:#ffb020;
+    --red:#ff5a46;
+    --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+    --sans: -apple-system, 'Segoe UI', Inter, system-ui, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); overflow:hidden; user-select:none;
+    display:flex; height:100vh;
+  }
+  ::selection{background:var(--green-dim);}
+
+  /* ---------- drop overlay ---------- */
+  #dropOverlay{
+    position:fixed; inset:0; z-index:50; display:none;
+    align-items:center; justify-content:center;
+    background:rgba(10,12,11,.92); backdrop-filter: blur(3px);
+    border:3px dashed var(--green); margin:14px; border-radius:18px;
+    font-size:64px; pointer-events:none;
+  }
+  body.dragging #dropOverlay{display:flex;}
+
+  /* ---------- video canvas / collage ---------- */
+  #canvasViewport{
+    position:fixed; inset:0; z-index:1; overflow:hidden;
+  }
+  #canvasWorld{
+    position:absolute; left:0; top:0; will-change:transform;
+    transition:transform .45s cubic-bezier(.2,.8,.2,1);
+  }
+  .tile{
+    position:absolute; left:0; top:0;
+    border-radius:12px; overflow:hidden; cursor:pointer;
+    background:#0d0f0b; border:2px solid transparent;
+    transition:transform .28s cubic-bezier(.2,.8,.2,1), border-color .2s, box-shadow .2s, left .28s, top .28s, width .28s, height .28s;
+    box-shadow:0 4px 14px rgba(0,0,0,.4);
+  }
+  .tile.dragging{transition:none; z-index:5; box-shadow:0 10px 28px rgba(0,0,0,.6); transform:none;}
+  .tile video{width:100%; height:100%; object-fit:contain; display:block; pointer-events:none;}
+  .tile.active{
+    border-color:#ffcf4d;
+    border-width:4px;
+    box-shadow:0 0 0 5px rgba(255,207,77,.35), 0 0 24px rgba(255,207,77,.25), 0 10px 26px rgba(0,0,0,.6);
+    transform:scale(1.06);
+    z-index:6;
+  }
+  .tile .prog{
+    position:absolute; left:3px; right:3px; bottom:3px; height:3px; background:rgba(0,0,0,.5); border-radius:2px; overflow:hidden;
+  }
+  .tile .prog i{display:block; height:100%; width:0%; background:var(--green);}
+  .tile .x{
+    position:absolute; bottom:6px; right:4px; width:18px; height:18px; border-radius:50%;
+    background:var(--red); color:#1a0a08; font-size:11px; display:none; align-items:center; justify-content:center; line-height:1; z-index:2;
+  }
+  .tile:hover .x{display:flex;}
+  .tile .lbl{
+    position:absolute; left:0; right:0; top:0; padding:3px 6px; font-size:9px; color:var(--muted);
+    background:linear-gradient(rgba(0,0,0,.55),transparent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  /* счётчики ✅/❌ по конкретному видео — появляются только когда из этого
+     ролика реально что-то вырезано, в остальное время их не видно */
+  .tile .badge{
+    position:absolute; top:6px; min-width:20px; height:20px; padding:0 4px; border-radius:10px;
+    display:none; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:11px; font-weight:700; color:#0a0c0b;
+    box-shadow:0 2px 6px rgba(0,0,0,.5); z-index:4; line-height:1;
+  }
+  .tile .badge.show{display:flex;}
+  .tile .badge-pos{ right:6px; background:var(--green); }
+  .tile .badge-neg{ left:6px; background:var(--red); }
+
+  /* ---------- main ---------- */
+  #main{flex:1; display:flex; flex-direction:column; min-width:0; position:relative; z-index:2; pointer-events:none;}
+
+  #empty{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:var(--muted); gap:14px; text-align:center; padding:20px;
+  }
+  #empty .big{font-size:56px;}
+  #empty .hint{font-size:13px; letter-spacing:.02em;}
+  #empty .hint b{color:var(--ink); font-weight:600;}
+  .folder-btn{
+    margin-top:6px; pointer-events:auto; cursor:pointer;
+    background:var(--panel2); color:var(--ink); border:1px solid var(--hair);
+    border-radius:10px; padding:10px 16px; font-size:13px; font-family:var(--sans);
+    max-width:340px;
+  }
+  .folder-btn:hover{background:var(--green-dim); border-color:var(--green);}
+
+  #stage{flex:1; display:none; flex-direction:column; min-height:0;}
+  body.has-video #empty{display:none;}
+  body.has-video #stage{display:flex;}
+
+  #videoWrap{
+    flex:1 1 auto; min-height:0; position:relative; pointer-events:none; overflow:visible;
+  }
+  #videoWrap video, #videoWrap #tapBox, #videoWrap #transport, #videoWrap #cutBar,
+  #videoWrap #waveArea, #videoWrap #zoneBadge, #videoWrap #scanProgress, #videoWrap #nnPanel{ pointer-events:auto; }
+  #videoWrap video{ background:#000; border-radius:12px; object-fit:contain; }
+  #videoWrap video{
+    position:fixed; left:0; top:0; width:110px; height:110px;
+    display:block; z-index:2;
+  }
+  #tapBox{position:fixed; cursor:pointer; z-index:3;}
+
+  #timecode{
+    position:absolute; bottom:10px; left:12px; font-family:var(--mono); font-size:13px;
+    color:var(--green); background:rgba(0,0,0,.45); padding:3px 8px; border-radius:6px;
+    letter-spacing:.03em; pointer-events:none;
+  }
+  #status{
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    font-family:var(--mono); font-size:12px; z-index:31;
+    color:var(--muted); background:rgba(0,0,0,.6); padding:6px 12px; border-radius:8px;
+    pointer-events:none; text-align:center; white-space:nowrap;
+  }
+  #status:empty{ display:none; padding:0; background:none; }
+
+  /* ---------- scan progress (recognition indicator, own spot, no overlap) ---------- */
+  #scanProgress{
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    display:flex; align-items:center; gap:9px; z-index:31;
+    background:rgba(10,12,11,.72); backdrop-filter:blur(6px);
+    padding:9px 16px; border-radius:20px; border:1px solid rgba(255,255,255,.07);
+    font-family:var(--mono); font-size:12px; color:var(--ink);
+    opacity:0; pointer-events:none; transition:opacity .25s;
+  }
+  #scanProgress.show{opacity:1;}
+  #scanProgress .spin{
+    display:inline-block; animation:scanspin 1s linear infinite; font-size:13px;
+  }
+  @keyframes scanspin{ to{ transform:rotate(360deg); } }
+  #scanProgress .bar{
+    width:96px; height:4px; border-radius:2px; background:var(--hair); overflow:hidden;
+  }
+  #scanProgress .bar i{
+    display:block; height:100%; width:0%; background:var(--green); transition:width .15s linear;
+  }
+  #scanProgress .pct{min-width:32px; text-align:right; color:var(--green);}
+  #scanProgress .eta{color:var(--muted); font-size:11px;}
+
+  /* ---------- transport (floating over the video) ---------- */
+  #transport{
+    position:absolute; left:50%; top:14px; transform:translateX(-50%);
+    display:flex; align-items:center; gap:10px; z-index:8;
+    background:rgba(10,12,11,.55); backdrop-filter:blur(4px);
+    padding:8px; border-radius:16px; border:1px solid rgba(255,255,255,.06);
+  }
+  .ibtn{
+    background:none; border:none; color:var(--ink); font-size:20px; cursor:pointer;
+    width:36px; height:36px; display:flex; align-items:center; justify-content:center;
+    border-radius:8px; flex:0 0 auto;
+  }
+  .ibtn:hover{background:var(--panel2);}
+  .ibtn:active{transform:scale(.92);}
+  .ibtn.small{font-size:15px; width:28px; height:28px;}
+
+  /* ---------- waveform (floating panel over the video, not docked) ---------- */
+  #waveArea{
+    position:absolute; left:16px; right:16px; bottom:14px; z-index:7;
+    background:rgba(9,10,9,.94); backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.07); border-radius:18px;
+    height:128px; padding:10px 14px 10px;
+    display:flex; flex-direction:column; gap:3px;
+  }
+  #waveScroll{
+    position:relative; width:100%; flex:1 1 auto; min-height:0; overflow-x:auto; overflow-y:hidden;
+    border-radius:6px;
+  }
+  #waveScroll::-webkit-scrollbar{height:6px;}
+  #waveScroll::-webkit-scrollbar-thumb{background:var(--hair); border-radius:3px;}
+  #waveCanvas{height:100%; display:block; cursor:crosshair;}
+  /* ruler lives in its own row, outside/under the track card — never clipped by the
+     track's own scrollbar, always fully visible on the translucent panel background */
+  #rulerRow{
+    position:relative; width:100%; height:16px; flex:0 0 auto; overflow:hidden;
+  }
+  #rulerCanvas{ display:block; height:100%; }
+  #priorMarksLayer, #sessionMarksLayer{
+    position:absolute; left:0; top:0; height:100%; pointer-events:none; z-index:3;
+  }
+  #sessionMarksLayer{ z-index:4; }
+  .priorMark{
+    position:absolute; top:2px; bottom:2px; border-radius:4px;
+    pointer-events:auto; cursor:default; box-sizing:border-box;
+  }
+  /* прошлый прогон — пунктир, "призрак" старого решения */
+  .priorMark.ok{ border:2px dashed var(--green); background:rgba(107,255,158,.10); }
+  .priorMark.bad{ border:2px dashed var(--red); background:rgba(255,90,70,.10); }
+  /* текущая сессия — сплошная яркая рамка, то, что отметил только что */
+  .priorMark.session.ok{ border:2px solid var(--green); background:rgba(107,255,158,.20); }
+  .priorMark.session.bad{ border:2px solid var(--red); background:rgba(255,90,70,.20); }
+  .priorMark .del{
+    position:absolute; top:-9px; right:-9px; width:18px; height:18px; border-radius:50%;
+    background:var(--red); color:#1a0a08; font-size:11px; display:none;
+    align-items:center; justify-content:center; line-height:1; cursor:pointer;
+    box-shadow:0 2px 6px rgba(0,0,0,.5);
+  }
+  .priorMark:hover .del{display:flex;}
+  .priorMark:hover{ filter:brightness(1.25); }
+
+  #selBox{
+    position:absolute; top:0; bottom:0; width:10px;
+    border:1.5px dashed var(--amber); border-radius:4px; background:rgba(255,176,32,.10);
+    pointer-events:none;
+  }
+  #selBox::after{
+    content:''; position:absolute; top:-9px; left:50%; transform:translateX(-50%);
+    width:6px; height:6px; background:var(--amber); border-radius:50%;
+  }
+  .selHandle{
+    position:absolute; top:-2px; bottom:-2px; width:14px; cursor:ew-resize;
+    pointer-events:auto;
+  }
+  .selHandle::before{
+    content:''; position:absolute; top:8px; bottom:8px; left:50%; width:3px;
+    transform:translateX(-50%); background:var(--amber); border-radius:2px; opacity:.85;
+  }
+  #selHandleL{ left:-7px; }
+  #selHandleR{ right:-7px; }
+  #playLine{
+    position:absolute; top:0; bottom:0; width:1px; background:var(--green);
+    pointer-events:none; opacity:.85;
+  }
+
+  /* ---------- cut controls (floating over the video, no dedicated zone) ---------- */
+  #cutBar{
+    position:absolute; left:50%; bottom:152px; transform:translateX(-50%);
+    display:flex; align-items:center; gap:10px; z-index:8;
+    background:rgba(10,12,11,.55); backdrop-filter:blur(4px);
+    padding:8px; border-radius:16px; border:1px solid rgba(255,255,255,.06);
+  }
+  .cut-btn{
+    font-size:24px; background:rgba(24,27,20,.85); border:1px solid var(--hair);
+    width:50px; height:42px; border-radius:12px; cursor:pointer; color:var(--ink);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .cut-btn:hover{transform:translateY(-1px);}
+  .cut-btn.ok:hover{border-color:var(--green); box-shadow:0 0 0 2px var(--green-dim) inset;}
+  .cut-btn.bad:hover{border-color:var(--red);}
+  #cutBar .ibtn.small{color:var(--ink); background:rgba(24,27,20,.6); border-radius:10px;}
+  #previewBtn.playing{color:var(--green);}
+
+  /* ---------- unvisited-zones badge (floating pill, near transport) ---------- */
+  #zoneBadge{
+    position:absolute; right:16px; top:14px; z-index:8;
+    display:none; align-items:center; gap:6px;
+    background:rgba(10,12,11,.55); backdrop-filter:blur(4px);
+    border:1px solid rgba(255,255,255,.06); border-radius:14px;
+    padding:6px 12px; font-family:var(--mono); font-size:12px; color:var(--amber);
+  }
+  #zoneBadge.show{display:flex;}
+
+  /* ---------- hotkeys reference in settings ---------- */
+  #hotkeysList{margin-top:12px; padding-top:10px; border-top:1px solid var(--hair);}
+  #hotkeysList .hk{display:flex; justify-content:space-between; gap:8px; margin-bottom:5px; font-family:var(--mono); font-size:11px;}
+  #hotkeysList .hk kbd{
+    background:var(--panel); border:1px solid var(--hair); border-radius:4px; padding:1px 5px;
+    color:var(--ink); font-family:var(--mono);
+  }
+  #copyLogsBtn{
+    margin-top:10px; width:100%; padding:8px 10px; border-radius:10px;
+    border:1px solid var(--hair); background:rgba(255,255,255,.04); color:var(--ink);
+    font-family:var(--mono); font-size:12px; cursor:pointer;
+  }
+  #copyLogsBtn:hover{ background:rgba(255,255,255,.09); }
+  #copyLogsBtn.copied{ color:var(--green); border-color:var(--green); }
+  .toast{
+    position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
+    background:var(--panel2); border:1px solid var(--hair); padding:8px 16px; border-radius:10px;
+    font-family:var(--mono); font-size:13px; opacity:0; transition:opacity .18s, transform .18s;
+    pointer-events:none; z-index:60;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  /* ---------- right dock ---------- */
+  #dock{
+    position:fixed; top:12px; right:12px; z-index:30;
+    width:auto; display:flex; flex-direction:column; align-items:center; gap:10px;
+  }
+  .dockbtn{
+    position:relative; width:44px; height:44px; border-radius:10px; background:rgba(24,27,20,.85);
+    backdrop-filter:blur(4px);
+    border:1px solid var(--hair); display:flex; align-items:center; justify-content:center;
+    font-size:19px; cursor:pointer; color:var(--ink);
+  }
+  .dockbtn .count{
+    position:absolute; bottom:-6px; right:-6px; min-width:16px; height:16px; padding:0 3px;
+    background:var(--green); color:#04120a; font-family:var(--mono); font-size:10px; font-weight:700;
+    border-radius:8px; display:flex; align-items:center; justify-content:center;
+  }
+  .dockbtn.bad .count{background:var(--red); color:#1a0604;}
+  .dockbtn:hover{border-color:var(--muted);}
+  #dock .sep{width:28px; height:1px; background:var(--hair); margin:4px 0;}
+
+  /* ---------- settings popover ---------- */
+  #gear{position:relative;}
+  #settingsPop{
+    position:absolute; right:56px; top:0; width:230px; background:var(--panel2);
+    border:1px solid var(--hair); border-radius:12px; padding:14px; display:none;
+    font-size:12px; color:var(--muted); z-index:40;
+  }
+  #settingsPop.show{display:block;}
+  #settingsPop label{display:block; margin-bottom:10px;}
+  #settingsPop input[type=range]{width:100%; margin-top:6px;}
+  #settingsPop .row{display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px;}
+
+  input[type=range]{
+    -webkit-appearance:none; height:3px; background:var(--hair); border-radius:2px; outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--green); cursor:pointer;
+  }
+  input[type=range]:disabled{opacity:.35;}
+  input[type=range]:disabled::-webkit-slider-thumb{background:var(--muted);}
+
+  #fileInput{display:none;}
+
+  /* ---------- 🧠 neural-net panel ----------
+     Sits flush on top of #waveArea — same background/blur/border, no gap,
+     seam hidden — so it reads as the audio-track panel itself growing
+     upward to expose the model's own dials, not a separate menu on top.
+     #waveArea gets .nn-open to drop its top radius/border while joined. */
+  #nnPanel{
+    position:absolute; left:16px; right:16px; bottom:142px; z-index:9;
+    background:rgba(9,10,9,.94); backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.07); border-bottom:none;
+    border-top-left-radius:18px; border-top-right-radius:18px;
+    padding:14px 18px 16px; display:none;
+    max-height:min(60vh, 460px); overflow-y:auto;
+  }
+  #nnPanel.show{display:block;}
+  #nnPanel::-webkit-scrollbar{width:6px;}
+  #nnPanel::-webkit-scrollbar-thumb{background:var(--hair); border-radius:3px;}
+  #waveArea.nn-open{ border-top-left-radius:0; border-top-right-radius:0; border-top:none; }
+
+  #nnHead{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    margin-bottom:12px;
+  }
+  #nnHead .ttl{
+    font-size:12px; font-weight:700; color:var(--ink); letter-spacing:.02em;
+    display:flex; align-items:center; gap:6px;
+  }
+  #nnHead .ttl small{font-weight:400; color:var(--muted); font-family:var(--mono); font-size:10px;}
+  #nnClose{
+    background:none; border:none; color:var(--muted); font-size:15px; cursor:pointer;
+    width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center;
+  }
+  #nnClose:hover{background:var(--panel2); color:var(--ink);}
+
+  /* body: narrow single-column preset list on the left, frees up the rest
+     of the width for the sliders so they can run long (better fine-tuning) */
+  #nnBody{display:flex; gap:26px; align-items:flex-start;}
+  #nnPresets{
+    display:flex; flex-direction:column; gap:5px;
+    flex:0 0 208px; width:208px;
+  }
+  .nn-preset-btn{
+    text-align:left; background:var(--panel); border:1px solid var(--hair); border-radius:9px;
+    padding:6px 9px; cursor:pointer; color:var(--ink); font-family:var(--sans);
+    display:flex; flex-direction:column; gap:1px;
+  }
+  .nn-preset-btn:hover{border-color:var(--muted);}
+  .nn-preset-btn.active{border-color:var(--green); background:rgba(107,255,158,.08);}
+  .nn-preset-btn .name{font-size:11px; font-weight:600; line-height:1.3;}
+  .nn-preset-btn.active .name{color:var(--green);}
+  .nn-preset-btn .tag{font-size:9px; color:var(--muted); font-family:var(--mono); line-height:1.3;}
+
+  #nnGrid{
+    flex:1 1 auto; min-width:0;
+    display:grid; grid-template-columns:1fr 1fr; gap:16px 28px;
+  }
+  .nn-col{display:flex; flex-direction:column; gap:14px;}
+  .nn-field{font-size:11px; color:var(--muted);}
+  .nn-field .flabel{
+    display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;
+    color:var(--ink); font-size:11.5px;
+  }
+  .nn-field .flabel .fval{font-family:var(--mono); color:var(--green); font-size:11px;}
+  .nn-field .fhint{font-size:9.5px; color:var(--muted); margin-top:4px; line-height:1.35;}
+  .nn-field select{
+    width:100%; background:var(--panel); color:var(--ink); border:1px solid var(--hair);
+    border-radius:6px; padding:5px 8px; font-family:var(--sans); font-size:11.5px; cursor:pointer;
+  }
+  .nn-field select:focus{outline:none; border-color:var(--green);}
+  .nn-toggle{
+    display:flex; align-items:center; gap:8px; cursor:pointer; font-size:11.5px; color:var(--ink);
+    user-select:none;
+  }
+  .nn-toggle input{accent-color:var(--green); width:14px; height:14px; cursor:pointer;}
+
+  @media (max-width: 640px){
+    #waveArea{height:138px;}
+    #cutBar{bottom:162px;}
+    .cut-btn{width:46px; height:40px; font-size:22px;}
+    #nnPanel{bottom:152px; padding:12px 14px 14px;}
+    #nnBody{flex-direction:column; gap:14px;}
+    #nnPresets{flex:0 0 auto; width:100%; flex-direction:row; flex-wrap:wrap;}
+    .nn-preset-btn{flex:1 1 45%;}
+    #nnGrid{grid-template-columns:1fr; gap:14px;}
+  }
+</style>
+</head>
+<body>
+
+  <div id="dropOverlay">🎬➡️</div>
+
+  <!-- video collage canvas -->
+  <div id="canvasViewport">
+    <div id="canvasWorld"></div>
+  </div>
+
+  <!-- main stage -->
+  <div id="main">
+
+    <div id="empty">
+      <div class="big">🎧🅡</div>
+      <div class="hint">перетащи <b>видео</b> сюда</div>
+      <button id="openFolderBtn" type="button" class="folder-btn">📁 или открой папку целиком — один вопрос на всю сессию, дальше без вопросов</button>
+    </div>
+
+    <div id="stage">
+      <div id="videoWrap">
+        <video id="video" playsinline></video>
+        <div id="tapBox"></div>
+        <div id="timecode">00:00.000</div>
+        <div id="status"></div>
+        <div id="scanProgress" title="Идёт поиск «Р» по звуковой дорожке">
+          <span class="spin">🔍</span>
+          <div class="bar"><i id="scanBar"></i></div>
+          <span class="pct" id="scanPct">0%</span>
+          <span class="eta" id="scanEta"></span>
+        </div>
+
+        <div id="transport">
+          <button class="cut-btn" id="backBtn" title="− 1 с">⏮</button>
+          <button class="cut-btn" id="playBtn" title="Пробел">▶️</button>
+          <button class="cut-btn" id="fwdBtn" title="+ 1 с">⏭</button>
+        </div>
+
+        <div id="zoneBadge" title="Сколько найденных зон «Р» ещё не просмотрено (Tab / Shift+Tab — перейти)">
+          🔍<span id="zoneBadgeCount">0</span>
+        </div>
+
+        <div id="cutBar">
+          <button class="ibtn small" id="nudgeL" title="Сдвинуть окно влево">◀︎</button>
+          <button class="cut-btn bad" id="badBtn" title="Сохранить как неправильное произношение">❌</button>
+          <button class="ibtn" id="previewBtn" title="Прослушать этот кусок (P)">🎧</button>
+          <button class="cut-btn ok" id="okBtn" title="Сохранить как правильное произношение">✅</button>
+          <button class="ibtn small" id="nudgeR" title="Сдвинуть окно вправо">▶︎</button>
+        </div>
+
+        <div id="nnPanel">
+          <div id="nnHead">
+            <div class="ttl">🧠 Настройки нейросети <small>распознавание «Р» пересчитывается на дорожке</small></div>
+            <button id="nnClose" type="button" title="Закрыть">✕</button>
+          </div>
+          <div id="nnBody">
+            <div id="nnPresets"></div>
+            <div id="nnGrid">
+              <div class="nn-col">
+                <div class="nn-field">
+                  <div class="flabel"><span>Целевая метка</span></div>
+                  <select id="labelSelect"></select>
+                  <div class="fhint">Какую метку из выдачи модели считаем «то, что ищем».</div>
+                </div>
+                <div class="nn-field">
+                  <div class="flabel"><span>Порог «Р»</span><span class="fval" id="val-nn-threshold">0.55</span></div>
+                  <input type="range" id="sl-nn-threshold" min="0.20" max="0.95" step="0.01" value="0.55">
+                  <div class="fhint">Ниже — ловит больше, но чаще ошибается. Выше — строже.</div>
+                </div>
+                <div class="nn-field">
+                  <div class="flabel"><span>Интервал, мс</span><span class="fval" id="val-nn-interval">250</span></div>
+                  <input type="range" id="sl-nn-interval" min="50" max="500" step="10" value="250">
+                  <div class="fhint">Шаг окна анализа по дорожке. Меньше — точнее, но дольше считает.</div>
+                </div>
+                <div class="nn-field">
+                  <div class="flabel"><span>Масштаб ×</span><span class="fval" id="val-nn-scale">32768</span></div>
+                  <input type="range" id="sl-nn-scale" min="8000" max="65536" step="1000" value="32768">
+                  <div class="fhint">float32→int16. Стандарт: 32768. Увеличь, если модель «не слышит» тихое.</div>
+                </div>
+              </div>
+              <div class="nn-col">
+                <label class="nn-toggle">
+                  <input type="checkbox" id="chk-nn-norm">
+                  <span>Нормализация пика громкости</span>
+                </label>
+                <div class="nn-field">
+                  <div class="flabel"><span>Мин. пик</span><span class="fval" id="val-nn-norm-min">500</span></div>
+                  <input type="range" id="sl-nn-norm-min" min="100" max="5000" step="100" value="500">
+                  <div class="fhint">Окна тише этого порога нормализация не трогает.</div>
+                </div>
+                <div class="nn-field">
+                  <div class="flabel"><span>Целевой пик</span><span class="fval" id="val-nn-norm-target">24000</span></div>
+                  <input type="range" id="sl-nn-norm-target" min="4000" max="32000" step="1000" value="24000">
+                  <div class="fhint">Куда подтягивается пик громких окон.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="waveArea">
+          <div id="waveScroll">
+            <canvas id="waveCanvas"></canvas>
+            <div id="priorMarksLayer"></div>
+            <div id="sessionMarksLayer"></div>
+            <div id="selBox">
+              <div id="selHandleL" class="selHandle" title="Наружу (влево) — сдвинуть окно по дорожке · внутрь (вправо) — сузить"></div>
+              <div id="selHandleR" class="selHandle" title="Наружу (вправо) — сдвинуть окно по дорожке · внутрь (влево) — сузить"></div>
+            </div>
+            <div id="playLine"></div>
+          </div>
+          <div id="rulerRow"><canvas id="rulerCanvas"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- right dock -->
+  <div id="dock">
+    <div class="dockbtn" id="okZip" title="Скачать «правильные» архивом">
+      📦✅<span class="count" id="okCount">0</span>
+    </div>
+    <div class="dockbtn bad" id="badZip" title="Скачать «неправильные» архивом">
+      📦❌<span class="count" id="badCount">0</span>
+    </div>
+    <div class="sep"></div>
+    <div class="dockbtn" id="nnGear" title="Настройки нейросети">
+      🧠
+    </div>
+    <div class="dockbtn" id="gear" title="Настройки">
+      ⚙️
+      <div id="settingsPop">
+        <label>📈 амплитуда волны
+          <input type="range" id="gainRange" min="1" max="6" step="0.1" value="1">
+        </label>
+
+        <div id="hotkeysList">
+          <div class="hk"><span>play/pause</span><kbd>Space</kbd></div>
+          <div class="hk"><span>окно на 0.1с</span><kbd>←</kbd><kbd>→</kbd></div>
+          <div class="hk"><span>✅ правильно</span><kbd>Enter</kbd></div>
+          <div class="hk"><span>❌ неправильно</span><kbd>Backspace</kbd></div>
+          <div class="hk"><span>прослушать кусок</span><kbd>P</kbd></div>
+          <div class="hk"><span>след. зона «Р»</span><kbd>Tab</kbd></div>
+          <div class="hk"><span>пред. зона «Р»</span><kbd>Shift+Tab</kbd></div>
+        </div>
+
+        <button id="copyLogsBtn" type="button">📋 Скопировать логи</button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept="video/*" multiple>
+  <div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   DIAGNOSTIC LOG  (for the "📋 Скопировать логи" button — captures
+   file-loading / decoding events so problem videos can be diagnosed
+   without needing to reproduce the issue live)
+   ============================================================ */
+const LOG_KEY = 'rEditorPersistedLogs';
+let appLog = [];
+try {
+  const saved = localStorage.getItem(LOG_KEY);
+  if (saved) appLog = JSON.parse(saved);
+} catch(e){ /* localStorage unavailable (private mode / file:// restrictions) — logs just won't survive a reload */ }
+function logEvent(tag, msg){
+  const t = new Date().toISOString().split('T')[1].replace('Z','');
+  appLog.push(`[${t}] [${tag}] ${msg}`);
+  if (appLog.length > 400) appLog = appLog.slice(-400); // keep it bounded
+  try{ localStorage.setItem(LOG_KEY, JSON.stringify(appLog)); }catch(e){} // persisted immediately — survives a reload/crash so we can see what happened right before it
+}
+logEvent('BOOT', '--- новая загрузка страницы --- ua='+navigator.userAgent);
+
+/* ============================================================
+   CRASH-SAFE BLOCKLIST
+   decodeAudioData() иногда роняет саму вкладку нативно (не JS-исключение,
+   поймать нельзя) на некоторых экспортах с телефона — это подтверждённый
+   баг Chromium. Чтобы не терять скорость на всех остальных файлах, но и не
+   получать этот краш повторно на одном и том же плохом файле, делаем так:
+   перед вызовом decodeAudioData запоминаем "сигнатуру" файла в localStorage.
+   Если следующая загрузка страницы начинается с того, что эта пометка ещё
+   стоит — значит прошлая сессия оборвалась прямо во время decode, то есть
+   был краш. Такой файл больше никогда не пробуем decodeAudioData'ом,
+   сразу используем медленный, но безопасный метод (реальное воспроизведение).
+   ============================================================ */
+const CRASH_BLOCKLIST_KEY = 'rEditorCrashBlocklist';
+const PENDING_DECODE_KEY = 'rEditorPendingDecode';
+let crashBlocklist = new Set();
+try { crashBlocklist = new Set(JSON.parse(localStorage.getItem(CRASH_BLOCKLIST_KEY) || '[]')); } catch(e){}
+// INTENTIONAL: identifying a file by name+size only is a deliberate owner decision.
+// Do not flag this as a bug again.
+function fileSig(file){ return `${file.name}::${file.size}`; }
+// Некоторые форматы (.mkv и т.п.) браузер иногда не размечает как video/* в file.type —
+// в этом случае (пустой type) подстраховываемся расширением файла, чтобы валидное
+// видео не отбрасывалось молча.
+const VIDEO_EXT_FALLBACK = ['mp4','mov','webm','mkv','avi','m4v','3gp','wmv','flv','ogv'];
+function isVideoFile(file){
+  if (file.type) return file.type.startsWith('video/');
+  return VIDEO_EXT_FALLBACK.some(ext => file.name.toLowerCase().endsWith('.'+ext));
+}
+// PENDING_DECODE_KEY хранит МАССИВ сигнатур (а не одну строку!): если пользователь
+// скармливает несколько видео разом, их decodeAudioData() может идти внахлёст —
+// одна общая строка перезаписывала бы чужую сигнатуру и ломала детект краша.
+function readPendingDecodeSet(){
+  try {
+    const arr = JSON.parse(localStorage.getItem(PENDING_DECODE_KEY) || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch(e){ return []; }
+}
+function addPendingDecode(sig){
+  try {
+    const arr = readPendingDecodeSet();
+    if (!arr.includes(sig)) arr.push(sig);
+    localStorage.setItem(PENDING_DECODE_KEY, JSON.stringify(arr));
+  } catch(e){}
+}
+function removePendingDecode(sig){
+  try {
+    const arr = readPendingDecodeSet().filter(s => s !== sig);
+    if (arr.length) localStorage.setItem(PENDING_DECODE_KEY, JSON.stringify(arr));
+    else localStorage.removeItem(PENDING_DECODE_KEY);
+  } catch(e){}
+}
+try {
+  const pendingList = readPendingDecodeSet();
+  if (pendingList.length){
+    pendingList.forEach(sig=>{
+      logEvent('CRASH-DETECTED', `предыдущая загрузка оборвалась прямо во время decodeAudioData() для "${sig}" — похоже, это и был краш вкладки. Файл добавлен в чёрный список быстрого метода, для него теперь будет использоваться только безопасный метод.`);
+      crashBlocklist.add(sig);
+    });
+    try{ localStorage.setItem(CRASH_BLOCKLIST_KEY, JSON.stringify([...crashBlocklist])); }catch(e){}
+    localStorage.removeItem(PENDING_DECODE_KEY);
+  }
+} catch(e){}
+window.addEventListener('error', e=>{
+  logEvent('JS-ERROR', (e.message||'')+' @ '+(e.filename||'')+':'+(e.lineno||'')+' '+(e.error&&e.error.stack ? e.error.stack : ''));
+});
+window.addEventListener('unhandledrejection', e=>{
+  logEvent('PROMISE-REJECT', (e.reason && (e.reason.stack||e.reason.message)) || String(e.reason));
+});
+// обычная перезагрузка/закрытие вкладки — это не краш: штатно чистим метку,
+// чтобы файл не попал в чёрный список медленного метода на ровном месте.
+// Настоящий краш (упавший процесс рендерера) этот код просто не успевает
+// выполнить, поэтому метка останется — и вот тогда файл всё-таки попадёт
+// в чёрный список, как и задумано.
+window.addEventListener('beforeunload', ()=>{
+  try{ localStorage.removeItem(PENDING_DECODE_KEY); }catch(e){}
+});
+
+/* ============================================================
+   MODULE / CLASSIFIER  (adapted from the reference app; the
+   run_classifier() call is synchronous and works on any 16 kHz
+   mono 1s Float32 window — no live microphone required, so we
+   can feed it audio decoded straight out of an MP4.)
+   ============================================================ */
+var Module = { onRuntimeInitialized: function(){ classifierInitialized = true; } };
+var classifierInitialized = false;
+var classifierFailed = false; // true if loadModelWithProgress() gave up — used to stop waiting forever on stranded videos
+
+class EdgeImpulseClassifier {
+  init(){
+    if (classifierInitialized){
+      const ret = Module.init();
+      if (typeof ret === 'number' && ret !== 0) return Promise.reject(new Error('init() failed: '+ret));
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject)=>{
+      Module.onRuntimeInitialized = () => {
+        classifierInitialized = true;
+        const ret = Module.init();
+        if (typeof ret === 'number' && ret !== 0) return reject('init() failed: '+ret);
+        resolve();
+      };
+    });
+  }
+  classify(rawData, debug=false){
+    if (!classifierInitialized) throw new Error('Not initialized');
+    const obj = this._toHeap(rawData);
+    let ret;
+    try { ret = Module.run_classifier(obj.buffer.byteOffset, rawData.length, debug); }
+    finally { Module._free(obj.ptr); }
+    if (ret.result !== 0) throw new Error('Classification failed: '+ret.result);
+    return this._fillResult(ret);
+  }
+  getProperties(){
+    if (!classifierInitialized) throw new Error('Not initialized');
+    return this._toPlain(Module.get_properties(), Module.emcc_classification_properties_t.prototype);
+  }
+  _toHeap(data){
+    const arr = new Float32Array(data);
+    const bytes = arr.length * arr.BYTES_PER_ELEMENT;
+    const ptr = Module._malloc(bytes);
+    const heap = new Uint8Array(Module.HEAPU8.buffer, ptr, bytes);
+    heap.set(new Uint8Array(arr.buffer));
+    return { ptr, buffer: heap };
+  }
+  _toPlain(obj, proto){
+    const out = {};
+    for (const key of Object.getOwnPropertyNames(proto)){
+      const d = Object.getOwnPropertyDescriptor(proto, key);
+      if (d && typeof d.get === 'function') out[key] = obj[key];
+    }
+    return out;
+  }
+  _fillResult(ret){
+    const res = { anomaly: ret.anomaly, results: [] };
+    for (let i=0; i<ret.size(); i++){
+      const c = ret.get(i);
+      res.results.push({ label: c.label, value: c.value });
+      c.delete();
+    }
+    ret.delete();
+    return res;
+  }
+}
+
+function labelsFromProps(props){
+  const l = props.labels;
+  if (!l) return [];
+  if (Array.isArray(l)) return l;
+  if (typeof l.size === 'function'){
+    const arr = []; for (let i=0;i<l.size();i++) arr.push(l.get(i)); return arr;
+  }
+  return [];
+}
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const classifier = new EdgeImpulseClassifier();
+let MODEL_RATE = 16000, NUM_SAMPLES = 16000, LABELS = [], TARGET_LABEL = null;
+let THRESHOLD = 0.55;
+let GAIN_BOOST = 1;
+
+const queue = [];      // { id, file, name, url, duration, samples(Float32 16k mono, [-1,1]), regions[], analyzed, analyzing, progress }
+let activeId = null;
+// пока пользователь сам не кликнул ни по одному видео — центральная волна
+// автоматически показывает то видео, чью дорожку прямо сейчас разбирает
+// нейросеть/захват звука, создавая эффект «бегущего» анализа по очереди.
+// Как только человек кликнул по любому тайлу — автопереключение навсегда
+// отключается, дальше он сам решает, с каким видео работать.
+let userPickedManually = false;
+function autoFollow(item){
+  if (userPickedManually) return;
+  if (item.id === activeId) return;
+  setActive(item.id);
+}
+let selStart = 0;      // seconds, start of the selection window
+let selLen = 1.0;       // seconds, length of the selection window — draggable narrower via edge handles, capped at 1s
+const MIN_SEL_LEN = 0.05, MAX_SEL_LEN = 1.0;
+let HOP = 0.25;        // seconds between analysis windows (= "интервал" in the 🧠 panel, ms/1000)
+let AUDIO_SCALE = 32768;   // float32[-1,1] → int16-range multiplier fed to the model
+let NORM_ON = false;       // peak normalization toggle
+let NORM_MIN = 500;        // don't normalize windows quieter than this peak (int16 scale)
+let NORM_TARGET = 24000;   // normalize louder windows so their peak lands here
+let pxPerSec = 100;    // current timeline zoom (px per second of audio)
+let fitPxPerSec = 100; // pxPerSec that makes the whole track fit the viewport
+
+const okBucket = [];   // { name, blob }
+const badBucket = [];
+const cutIndex = new Map(); // key: itemId+'|'+t0(3dp) -> {type:'ok'|'bad', entry, item, t0} — одно окно живёт только в одной корзине
+
+function cutKey(item, t0){ return item.id+'|'+t0.toFixed(3); }
+
+// если это же 1с-окно уже лежит в другой (или той же) корзине — убираем его оттуда,
+// чтобы одна и та же запись не жила одновременно в ✅ и ❌
+function evictExistingCut(item, t0){
+  const key = cutKey(item, t0);
+  const prev = cutIndex.get(key);
+  if (!prev) return;
+  const arr = prev.type==='ok' ? okBucket : badBucket;
+  const idx = arr.indexOf(prev.entry);
+  if (idx>-1) arr.splice(idx,1);
+  const ci = item.cuts.findIndex(c => Math.abs(c.t0-prev.t0) < 0.001);
+  if (ci>-1) item.cuts.splice(ci,1);
+  cutIndex.delete(key);
+}
+
+// счётчики ✅/❌ по конкретному видео — считаем прямо по cutIndex, чтобы
+// цифра всегда была честной (перезапись/эвикт того же окна не задваивает счёт)
+function tileCutCounts(item){
+  let ok = 0, bad = 0;
+  cutIndex.forEach(v=>{
+    if (v.item.id !== item.id) return;
+    if (v.type==='ok') ok++; else bad++;
+  });
+  return { ok, bad };
+}
+function refreshTileBadges(item){
+  const t = tileEls.get(item.id);
+  if (!t) return;
+  const { ok, bad } = tileCutCounts(item);
+  if (ok>0){ t.posBadge.textContent = ok; t.posBadge.classList.add('show'); }
+  else t.posBadge.classList.remove('show');
+  if (bad>0){ t.negBadge.textContent = bad; t.negBadge.classList.add('show'); }
+  else t.negBadge.classList.remove('show');
+}
+
+/* ============================================================
+   ВШИТЫЕ МЕТАДАННЫЕ (никакого отдельного файла рядом с видео)
+   ------------------------------------------------------------
+   В конец видеофайла дописывается один "чужой" бокс (top-level box,
+   как в любом MP4/MOV) — [size:4][тип:4 = 'RcfA'][JSON-полезная нагрузка].
+   Плееры/парсеры, которые не знают такой тип бокса, просто его игнорируют —
+   это штатный механизм ISO BMFF, файл остаётся полностью воспроизводимым.
+   Найти бокс легко: он ВСЕГДА последний, так что смотрим на последние 8
+   байт файла — если там сигнатура, size говорит, откуда бокс начинается.
+   Перезапись файла целиком (через FileSystemFileHandle) происходит только
+   в момент нажатия ✕ на плитке, и только если по этому видео реально
+   что-то отмечено — если ничего не выделяли, файл не трогаем вовсе.
+   ============================================================ */
+const META_MAGIC = 'RcfA';
+const META_MAGIC_BYTES = new TextEncoder().encode(META_MAGIC);
+
+// Ищет бокс метаданных в конце файла. Возвращает {cleanEnd, payload} или null.
+// Формат бокса: [size:4][magic:4]<payload JSON>[size:4][magic:4] — заголовок
+// И подвал одинаковые, поэтому сигнатуру всегда можно найти по-настоящему в
+// конце файла (в отличие от старой версии, где magic лежал сразу после
+// заголовка и терялся где-то в середине при непустом payload).
+async function findTailMeta(file){
+  if (file.size < 16) return null;
+  const footer = new Uint8Array(await file.slice(file.size-8, file.size).arrayBuffer());
+  for (let i=0;i<4;i++) if (footer[4+i] !== META_MAGIC_BYTES[i]) return null;
+  const size = new DataView(footer.buffer, footer.byteOffset, 4).getUint32(0, false); // big-endian
+  if (size < 16 || size > file.size) return null;
+  const boxStart = file.size - size;
+  const payloadBuf = await file.slice(boxStart+8, file.size-8).arrayBuffer();
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(payloadBuf));
+    return { cleanEnd: boxStart, payload };
+  } catch(e){ return null; }
+}
+
+// Читается сразу при добавлении видео в очередь — не требует права записи,
+// обычный File тоже можно читать. Отображаем как "прошлый прогон".
+async function loadPriorMeta(item){
+  try {
+    const found = await findTailMeta(item.file);
+    if (found && found.payload && Array.isArray(found.payload.marks)){
+      item.priorMarks = found.payload.marks.map((m,i)=>({ id:'p'+i, t0:m.t0, t1:m.t1, type:m.type }));
+      logEvent('META-FOUND', `"${item.name}" прошлых меток: ${found.payload.marks.length}, дата=${found.payload.savedAt||'?'}`);
+      const priorOk = found.payload.marks.filter(m=>m.type==='ok').length;
+      const priorBad = found.payload.marks.filter(m=>m.type==='bad').length;
+      const t = tileEls.get(item.id);
+      if (t && t.el) t.el.title = `прошлый прогон: ✅${priorOk} ❌${priorBad}`;
+      if (item.id === activeId) redrawAll();
+    }
+  } catch(e){ logEvent('META-READ-ERROR', String(e && e.message || e)); }
+}
+
+// Собирает все ✅/❌ метки этого видео из cutIndex в плоский список для записи.
+function marksForItem(item){
+  const marks = [];
+  cutIndex.forEach(v=>{
+    if (v.item.id !== item.id) return;
+    marks.push({ t0: v.t0, t1: (v.t1 != null ? v.t1 : v.t0+1), type: v.type });
+  });
+  return marks;
+}
+
+// Итоговый набор для записи в файл: то, что уцелело из прошлого прогона
+// (после точечных удалений крестиком), плюс то, что отмечено в этой сессии.
+// Если на одну и ту же секунду есть и старая, и новая метка — побеждает
+// новая (сессия только что вручную это перепроверила).
+function buildFinalMarks(item){
+  const session = marksForItem(item);
+  const prior = (item.priorMarks || []).filter(p =>
+    !session.some(s => Math.abs(s.t0-p.t0) < 0.05)
+  );
+  return [...prior.map(p=>({t0:p.t0, t1:p.t1, type:p.type})), ...session];
+}
+
+// Перезаписывает исходный файл целиком: старые байты видео (без старого
+// бокса метаданных, если он был) + свежий бокс с новой разметкой.
+// Вызывается ТОЛЬКО если marks.length > 0 — иначе файл не трогаем совсем.
+// Запись и удаление меток в файле всегда идут через одну и ту же цепочку
+// промисов на каждый item — если два запроса на запись в один и тот же файл
+// прилетят почти одновременно (например: сработал debounce-таймер именно
+// в момент, когда нажали "убрать видео"), они выполнятся по очереди, а не
+// одновременно. Без этого вторая запись могла бы завершиться раньше первой,
+// и более новые метки молча остались бы не сохранены.
+const writeChains = new Map(); // itemId -> цепочка промисов
+function serializeWrite(item, fn){
+  const prev = writeChains.get(item.id) || Promise.resolve();
+  const run = prev.then(fn, fn); // запускаем fn, даже если предыдущая запись этого же файла упала с ошибкой
+  writeChains.set(item.id, run.then(()=>{}, ()=>{})); // и сама очередь не встаёт намертво после одной ошибки
+  return run;
+}
+
+// Тихая проверка (без всплывающего запроса!) — просто смотрим, не отозвал ли
+// браузер/ОС разрешение на запись, прежде чем пытаться писать. requestPermission()
+// сюда специально не зовём: он может показать диалог, а диалогу для показа нужен
+// настоящий клик пользователя, а не автосохранение по таймеру — вызов не в том
+// контексте либо тихо провалится, либо поведёт себя непредсказуемо по браузерам.
+async function hasWritePermission(item){
+  if (!item.handle || typeof item.handle.queryPermission !== 'function') return true; // старый браузер без этого API — как и раньше, просто пробуем писать напрямую
+  try { return (await item.handle.queryPermission({ mode: 'readwrite' })) === 'granted'; }
+  catch(e){ return true; } // сам метод не поддержан/бросил — не блокируем запись из-за этого
+}
+
+// Возвращает статус результата, чтобы вызывающий код (например, removeItem)
+// знал, реально ли сохранилось, а не просто "функция отработала":
+//  'ok'        — сохранять было нечего, либо сохранили/стёрли успешно
+//  'no-handle' — вшить некуда (файл открыт без права записи) — ожидаемо,
+//                об этом уже сообщили тостом при самой первой попытке записи
+//  'error'     — реальная неудача: разрешение пропало ИЛИ запись не удалась
+async function writeMetaToFileRaw(item){
+  if (!item.touched) return 'ok'; // за эту сессию по этому видео ничего не менялось — файл не трогаем вовсе
+  const marks = buildFinalMarks(item);
+  if (!marks.length){
+    // нечего сохранять — но если бокс уже был (например, только что стёрли
+    // последнюю прошлую метку крестиком), его нужно физически убрать из файла
+    if (!item.handle) return 'ok';
+    const stripped = await stripEmbeddedMetaRaw(item);
+    return stripped ? 'ok' : 'error';
+  }
+
+  if (!item.handle){
+    toast('⚠️ метки не вшиты — файл открыт без права записи');
+    logEvent('META-WRITE-SKIPPED', `"${item.name}" — нет FileSystemFileHandle (файл выбран через <input> или браузер не поддерживает)`);
+    return 'no-handle';
+  }
+  if (!(await hasWritePermission(item))){
+    toast('⚠️ пропало разрешение на запись — открой файл заново, чтобы восстановить доступ');
+    logEvent('META-WRITE-NO-PERMISSION', `"${item.name}" — queryPermission вернул не "granted"`);
+    return 'error';
+  }
+  try {
+    const freshFile = await item.handle.getFile(); // читаем с диска на всякий случай — вдруг файл менялся
+    const prior = await findTailMeta(freshFile);
+    const cleanEnd = prior ? prior.cleanEnd : freshFile.size;
+    const cleanBlob = freshFile.slice(0, cleanEnd);
+
+    const payload = { v:1, savedAt: Date.now(), marks };
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
+    const size = 16 + payloadBytes.length; // header(8) + payload + footer(8)
+    const frame = new Uint8Array(8);
+    new DataView(frame.buffer).setUint32(0, size, false);
+    frame.set(META_MAGIC_BYTES, 4);
+
+    const writable = await item.handle.createWritable();
+    await writable.write(cleanBlob);
+    await writable.write(frame);       // header
+    await writable.write(payloadBytes);
+    await writable.write(frame);       // footer (идентичен заголовку) — именно он даёт возможность искать с конца файла
+    await writable.close();
+    logEvent('META-WRITE-OK', `"${item.name}" — вшито меток: ${marks.length}`);
+    toast(`💾 метки вшиты в файл (${marks.length})`);
+    return 'ok';
+  } catch(e){
+    logEvent('META-WRITE-ERROR', String(e && e.stack || e));
+    toast('⚠️ не удалось перезаписать файл метаданными');
+    return 'error';
+  }
+}
+function writeMetaToFile(item){
+  return serializeWrite(item, ()=>writeMetaToFileRaw(item));
+}
+
+/* ---------- авто-сохранение по ходу работы (не дожидаясь ✕) ----------
+   Каждая ✅/❌ (и каждый эвикт) планирует запись через SAVE_DEBOUNCE мс —
+   если за это время прилетит ещё одна отметка по тому же видео, таймер
+   просто передвигается, чтобы не долбить диск на каждый клик. На закрытие
+   вкладки/страницы — best-effort «дожать» несохранённое сразу же. */
+const SAVE_DEBOUNCE = 1200;
+const pendingSaveTimers = new Map(); // itemId -> timeout id
+const dirtyItems = new Set();        // itemId, у которых есть несохранённые изменения
+
+function scheduleMetaSave(item){
+  dirtyItems.add(item.id);
+  const existing = pendingSaveTimers.get(item.id);
+  if (existing) clearTimeout(existing);
+  pendingSaveTimers.set(item.id, setTimeout(async ()=>{
+    pendingSaveTimers.delete(item.id);
+    await writeMetaToFile(item);
+    dirtyItems.delete(item.id);
+  }, SAVE_DEBOUNCE));
+}
+
+// Немедленно (без debounce) дожимает всё, что ещё не записано — вызывается
+// при попытке закрыть вкладку и при полном скрытии страницы (переключение
+// на другое приложение на телефоне и т.п.), чтобы не терять разметку.
+function flushPendingSaves(){
+  pendingSaveTimers.forEach((tid, itemId)=>{
+    clearTimeout(tid);
+    const item = queue.find(q=>q.id===itemId);
+    if (item) writeMetaToFile(item); // fire-and-forget — синхронно дождаться async-записи из beforeunload всё равно нельзя
+  });
+  pendingSaveTimers.clear();
+}
+window.addEventListener('pagehide', flushPendingSaves);
+document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='hidden') flushPendingSaves(); });
+window.addEventListener('beforeunload', e=>{
+  flushPendingSaves();
+  // браузер не станет ждать async-запись на диск, так что если что-то ещё
+  // реально не записано — честно предупреждаем о риске потери разметки
+  if (dirtyItems.size){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+// Физически убирает бокс метаданных из файла на диске, ничего в него не
+// дописывая взамен.
+async function stripEmbeddedMetaRaw(item){
+  if (!item.handle) return false;
+  if (!(await hasWritePermission(item))){
+    toast('⚠️ пропало разрешение на запись — открой файл заново, чтобы восстановить доступ');
+    logEvent('META-STRIP-NO-PERMISSION', `"${item.name}" — queryPermission вернул не "granted"`);
+    return false;
+  }
+  try {
+    const freshFile = await item.handle.getFile();
+    const prior = await findTailMeta(freshFile);
+    if (!prior) return true; // и так нечего вырезать
+    const cleanBlob = freshFile.slice(0, prior.cleanEnd);
+    const writable = await item.handle.createWritable();
+    await writable.write(cleanBlob);
+    await writable.close();
+    logEvent('META-STRIP-OK', `"${item.name}" — старый бокс метаданных удалён из файла`);
+    return true;
+  } catch(e){
+    logEvent('META-STRIP-ERROR', String(e && e.stack || e));
+    toast('⚠️ не удалось стереть старые метаданные из файла');
+    return false;
+  }
+}
+// Рисует зелёные/красные рамки прошлых меток поверх дорожки активного видео —
+// как жёлтая рамка выделения, только не двигается, а просто показывает, что
+// раньше было отмечено ✅/❌ на этом месте. Наведение — крестик для точечного
+// удаления ОДНОЙ метки (без сброса всего остального).
+function renderPriorMarksLayer(item){
+  if (!priorMarksLayer) return;
+  priorMarksLayer.innerHTML = '';
+  priorMarksLayer.style.width = waveCanvas.style.width || '0px';
+  if (!item || !item.priorMarks || !item.priorMarks.length) return;
+  const dur = item.duration || (item.samples ? item.samples.length/16000 : 0);
+  if (!dur) return;
+  // те же 0.05с допуска, что и в buildFinalMarks при записи в файл — если это
+  // место уже переотмечено в ЭТОЙ сессии, старую пунктирную рамку тут не рисуем,
+  // чтобы на дорожке не было двух наложенных друг на друга рамок на одном месте.
+  const sessionMarks = marksForItem(item);
+  item.priorMarks.forEach(m=>{
+    if (sessionMarks.some(s => Math.abs(s.t0-m.t0) < 0.05)) return;
+    const x0 = m.t0*pxPerSec, x1 = m.t1*pxPerSec;
+    const box = document.createElement('div');
+    box.className = 'priorMark ' + (m.type==='ok' ? 'ok' : 'bad');
+    box.style.left = x0+'px';
+    box.style.width = Math.max(4, x1-x0)+'px';
+    box.title = `прошлый прогон: ${m.type==='ok' ? '✅ похоже на Р' : '❌ не похоже'} · ${fmt(m.t0)}–${fmt(m.t1)}`;
+    const del = document.createElement('span');
+    del.className = 'del'; del.textContent = '✕';
+    del.title = 'удалить только эту метку';
+    del.addEventListener('click', ev=>{ ev.stopPropagation(); deletePriorMark(item, m.id); });
+    box.appendChild(del);
+    priorMarksLayer.appendChild(box);
+  });
+}
+
+// Точечное удаление одной старой метки: убирает её из памяти, сразу же
+// перерисовывает рамки и планирует запись (тот же debounce-механизм, что и
+// у обычных ✅/❌ — если человек кликает несколько крестиков подряд, это не
+// вызовет отдельную запись файла на каждый клик).
+function deletePriorMark(item, markId){
+  if (!item.priorMarks) return;
+  const idx = item.priorMarks.findIndex(m=>m.id===markId);
+  if (idx<0) return;
+  item.priorMarks.splice(idx,1);
+  item.touched = true;
+  renderPriorMarksLayer(item);
+  refreshTileBadges(item);
+  const t = tileEls.get(item.id);
+  if (t && t.el){
+    const remOk = item.priorMarks.filter(m=>m.type==='ok').length;
+    const remBad = item.priorMarks.filter(m=>m.type==='bad').length;
+    t.el.title = (remOk||remBad) ? `прошлый прогон: ✅${remOk} ❌${remBad}` : item.name;
+  }
+  toast('✕ метка удалена точечно');
+  scheduleMetaSave(item);
+}
+
+// Живые рамки текущей сессии — то же самое визуально, что и "прошлый прогон",
+// но сплошной яркой рамкой: это то, что ты отмечаешь прямо сейчас. При
+// следующей загрузке файла (после того как это уляжется в метаданные) они
+// станут уже обычным "прошлым прогоном" — пунктирным.
+function renderSessionMarksLayer(item){
+  if (!sessionMarksLayer) return;
+  sessionMarksLayer.innerHTML = '';
+  sessionMarksLayer.style.width = waveCanvas.style.width || '0px';
+  if (!item) return;
+  cutIndex.forEach(v=>{
+    if (v.item.id !== item.id) return;
+    const x0 = v.t0*pxPerSec, x1 = (v.t1!=null ? v.t1 : v.t0+1)*pxPerSec;
+    const box = document.createElement('div');
+    box.className = 'priorMark session ' + (v.type==='ok' ? 'ok' : 'bad');
+    box.style.left = x0+'px';
+    box.style.width = Math.max(4, x1-x0)+'px';
+    box.title = `эта сессия: ${v.type==='ok' ? '✅ похоже на Р' : '❌ не похоже'} · ${fmt(v.t0)}`;
+    const del = document.createElement('span');
+    del.className = 'del'; del.textContent = '✕';
+    del.title = 'удалить только эту метку';
+    del.addEventListener('click', ev=>{ ev.stopPropagation(); removeSessionMark(item, v.t0); });
+    box.appendChild(del);
+    sessionMarksLayer.appendChild(box);
+  });
+}
+
+// Точечное удаление одной метки, отмеченной В ЭТОЙ сессии. Если под ней была
+// метка из прошлого прогона (та же секунда) — она автоматически "вернётся",
+// т.к. buildFinalMarks больше не видит перекрывающую сессионную запись.
+function removeSessionMark(item, t0){
+  const key = cutKey(item, t0);
+  const v = cutIndex.get(key);
+  if (!v) return;
+  const arr = v.type==='ok' ? okBucket : badBucket;
+  const idx = arr.indexOf(v.entry);
+  if (idx>-1) arr.splice(idx,1);
+  cutIndex.delete(key);
+  const ci = item.cuts.findIndex(c => Math.abs(c.t0-t0) < 0.001);
+  if (ci>-1) item.cuts.splice(ci,1);
+  okCount.textContent = okBucket.length;
+  badCount.textContent = badBucket.length;
+  item.touched = true;
+  refreshTileBadges(item);
+  toast('✕ метка этой сессии удалена');
+  redrawAll();
+  scheduleMetaSave(item);
+}
+
+/* ============================================================
+   DOM refs
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+const canvasViewport = $('canvasViewport'), canvasWorld = $('canvasWorld'), fileInput = $('fileInput'), openFolderBtn = $('openFolderBtn');
+const video = $('video'), tapBox = $('tapBox'), timecodeEl = $('timecode'), statusEl = $('status');
+
+// tapBox должен совпадать с реально отрисованным прямоугольником видео
+// (у видео max-width/max-height:100%, letterbox-поля вокруг не должны ловить клики)
+let lastTapRect = null; // кэш последних применённых координат — не переписываем style, если ничего не изменилось (эта функция дёргается каждый кадр)
+function syncTapBox(){
+  const wrapRect = video.parentElement.getBoundingClientRect();
+  const vRect = video.getBoundingClientRect();
+  if (!vRect.width || !vRect.height) return;
+  const left = vRect.left - wrapRect.left, top = vRect.top - wrapRect.top;
+  if (lastTapRect && lastTapRect.left===left && lastTapRect.top===top && lastTapRect.width===vRect.width && lastTapRect.height===vRect.height) return;
+  lastTapRect = { left, top, width: vRect.width, height: vRect.height };
+  tapBox.style.left = left + 'px';
+  tapBox.style.top = top + 'px';
+  tapBox.style.width = vRect.width + 'px';
+  tapBox.style.height = vRect.height + 'px';
+}
+video.addEventListener('loadedmetadata', syncTapBox);
+video.addEventListener('loadeddata', syncTapBox);
+// общий помощник: пока событие сыпется много раз подряд (например, resize
+// при перетаскивании края окна), реальная тяжёлая работа выполняется не
+// чаще одного раза за кадр браузера, вместо того чтобы дублироваться на
+// каждое отдельное срабатывание события
+function rafThrottle(fn){
+  let scheduled = false;
+  return function(...args){
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(()=>{ scheduled = false; fn.apply(this, args); });
+  };
+}
+window.addEventListener('resize', rafThrottle(syncTapBox));
+const scanProgressEl = $('scanProgress'), scanBarEl = $('scanBar'), scanPctEl = $('scanPct'), scanEtaEl = $('scanEta');
+const waveCanvas = $('waveCanvas'), waveArea = $('waveArea'), selBox = $('selBox');
+const waveScroll = $('waveScroll'), playLine = $('playLine'), priorMarksLayer = $('priorMarksLayer'), sessionMarksLayer = $('sessionMarksLayer');
+const rulerRow = $('rulerRow'), rulerCanvas = $('rulerCanvas');
+const rulerCtx = rulerCanvas.getContext('2d');
+const playBtn = $('playBtn'), backBtn = $('backBtn'), fwdBtn = $('fwdBtn');
+const nudgeL = $('nudgeL'), nudgeR = $('nudgeR'), okBtn = $('okBtn'), badBtn = $('badBtn');
+const previewBtn = $('previewBtn'), zoneBadge = $('zoneBadge'), zoneBadgeCount = $('zoneBadgeCount');
+const okZip = $('okZip'), badZip = $('badZip'), okCount = $('okCount'), badCount = $('badCount');
+const gear = $('gear'), settingsPop = $('settingsPop'), labelSelect = $('labelSelect');
+const nnGear = $('nnGear'), nnPanel = $('nnPanel'), nnClose = $('nnClose'), nnPresetsEl = $('nnPresets');
+const slNnThreshold = $('sl-nn-threshold'), valNnThreshold = $('val-nn-threshold');
+const slNnInterval  = $('sl-nn-interval'),  valNnInterval  = $('val-nn-interval');
+const slNnScale     = $('sl-nn-scale'),     valNnScale     = $('val-nn-scale');
+const chkNnNorm     = $('chk-nn-norm');
+const slNnNormMin   = $('sl-nn-norm-min'),  valNnNormMin   = $('val-nn-norm-min');
+const slNnNormTarget= $('sl-nn-norm-target'),valNnNormTarget=$('val-nn-norm-target');
+const copyLogsBtn = $('copyLogsBtn');
+const gainRange = $('gainRange');
+const toastEl = $('toast');
+const ctx2d = waveCanvas.getContext('2d');
+
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1200);
+}
+
+function fmtEta(sec){
+  if (!isFinite(sec) || sec < 0) return '';
+  if (sec < 1) return '<1 с';
+  if (sec < 60) return Math.ceil(sec)+' с';
+  const m = Math.floor(sec/60), s = Math.round(sec%60);
+  return m+' мин '+s+' с';
+}
+function showScanProgress(fraction, etaSec){
+  scanProgressEl.classList.add('show');
+  const pct = Math.round(Math.max(0,Math.min(1,fraction))*100);
+  scanBarEl.style.width = pct+'%';
+  scanPctEl.textContent = pct+'%';
+  scanEtaEl.textContent = etaSec != null ? '· ещё ~'+fmtEta(etaSec) : '';
+}
+function hideScanProgress(){
+  scanProgressEl.classList.remove('show');
+}
+
+/* ============================================================
+   LOAD + INIT CLASSIFIER (real byte-progress on the .wasm fetch,
+   since that's the only slow, trackable part — the emscripten
+   glue .js is tiny and instantiation itself is near-instant once
+   the binary is already in memory)
+   ============================================================ */
+async function loadModelWithProgress(){
+  showScanProgress(0, null);
+  scanEtaEl.textContent = '· загрузка модели';
+  let wasmOk = false;
+  try{
+    const wasmUrl = new URL('edge-impulse-standalone.wasm', location.href).href;
+    const resp = await fetch(wasmUrl);
+    if (!resp.ok || !resp.body) throw new Error(resp.status+' '+resp.statusText+' — '+wasmUrl);
+    const totalStr = resp.headers.get('Content-Length');
+    const total = totalStr ? parseInt(totalStr, 10) : 0;
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let received = 0;
+    const t0 = performance.now();
+    while (true){
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      if (total){
+        const frac = received/total;
+        const elapsed = (performance.now()-t0)/1000;
+        const eta = frac > 0.02 ? elapsed*(1-frac)/frac : null;
+        showScanProgress(frac, eta);
+        scanEtaEl.textContent += ' · загрузка модели';
+      } else {
+        // no Content-Length header available — show bytes downloaded instead of a percent
+        scanPctEl.textContent = (received/1024/1024).toFixed(1)+' МБ';
+        scanEtaEl.textContent = '· загрузка модели';
+      }
+    }
+    const buf = new Uint8Array(received);
+    let offset = 0;
+    for (const c of chunks){ buf.set(c, offset); offset += c.length; }
+    Module.wasmBinary = buf;
+    wasmOk = true;
+  } catch(e){
+    console.warn('прямая загрузка .wasm с прогрессом не удалась, откатываюсь на стандартный загрузчик:', e.message);
+    // fall through — emscripten's own fetch will still try edge-impulse-standalone.wasm itself
+  }
+
+  try{
+    await new Promise((resolve, reject)=>{
+      const jsUrl = new URL('edge-impulse-standalone.js', location.href).href;
+      const s = document.createElement('script');
+      s.src = jsUrl;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('файл не найден: '+jsUrl));
+      document.body.appendChild(s);
+    });
+  } catch(e){
+    throw new Error(
+      (wasmOk ? '' : '⚠️ edge-impulse-standalone.wasm не найден рядом с index.html. ') +
+      e.message +
+      '. Проверь, что оба файла лежат в ТОЙ ЖЕ папке, что и index.html, с именами ровно ' +
+      '"edge-impulse-standalone.js" и "edge-impulse-standalone.wasm" (без " (1)", без опечаток). ' +
+      'Открой ' + new URL('edge-impulse-standalone.wasm', location.href).href + ' в браузере напрямую — ' +
+      'если там 404, файла там физически нет.'
+    );
+  }
+
+  showScanProgress(1, 0);
+  scanEtaEl.textContent = '· компилирую модель';
+  await classifier.init();
+  const props = classifier.getProperties();
+  // Все нейросети, с которыми это работает, обучены и всегда будут обучаться на 16000 —
+  // это осознанное фиксированное решение, а не то, что надо было бы "подхватывать" из модели.
+  // MODEL_RATE читается из props исключительно для лога/диагностики ниже, в остальном
+  // пайплайне (нарезка, ресемплинг, encodeWav) везде сознательно стоит буквально 16000,
+  // и переписывать это под MODEL_RATE не нужно. Если когда-нибудь появится модель под
+  // другую частоту — придётся отдельно и осознанно менять весь пайплайн, а не эту строку.
+  MODEL_RATE = props.frequency || 16000;
+  NUM_SAMPLES = props.frame_sample_count || 16000;
+  LABELS = labelsFromProps(props);
+  TARGET_LABEL = LABELS.find(l => /^r$/i.test(l)) || LABELS.find(l => /[rр]/i.test(l)) || LABELS[0] || null;
+  labelSelect.innerHTML = LABELS.map(l => `<option value="${l}" ${l===TARGET_LABEL?'selected':''}>${l}</option>`).join('');
+  hideScanProgress();
+  toast('🧠 модель готова');
+}
+loadModelWithProgress().catch(err=>{
+  hideScanProgress();
+  classifierFailed = true;
+  statusEl.style.maxWidth = '80vw';
+  statusEl.style.whiteSpace = 'normal';
+  statusEl.textContent = '⚠️ ' + err.message;
+  console.error(err);
+});
+
+// смена целевой метки меняет, какое число из выдачи модели считается
+// "уверенностью" на каждом окне — это не просто перекраска, а как и
+// scale/interval/normalization, требует настоящего пересчёта дорожки
+labelSelect.addEventListener('change', ()=>{ TARGET_LABEL = labelSelect.value; scheduleReanalyze(); });
+const throttledRedrawAll = rafThrottle(redrawAll); // ползунки шлют event 'input' очень часто — тяжёлую перерисовку ограничиваем кадром, а значение и подпись обновляем сразу
+gainRange.addEventListener('input', ()=>{ GAIN_BOOST = parseFloat(gainRange.value); throttledRedrawAll(); });
+gear.addEventListener('click', (e)=>{ e.stopPropagation(); settingsPop.classList.toggle('show'); nnPanel.classList.remove('show'); waveArea.classList.remove('nn-open'); });
+copyLogsBtn.addEventListener('click', async (e)=>{
+  e.stopPropagation();
+  const header = [
+    `=== логи приложения «разметка Р» ===`,
+    `время: ${new Date().toString()}`,
+    `браузер: ${navigator.userAgent}`,
+    `видео в очереди: ${queue.length}`,
+    ...queue.map(q=>`  - "${q.name}" duration=${q.duration||'?'} analyzed=${q.analyzed} analyzing=${q.analyzing} samples=${q.samples?q.samples.length:'нет'} peak=${q.peakAmplitude!==undefined?q.peakAmplitude.toFixed(5)+(q.peakAmplitude<SILENCE_PEAK?' ⚠️ТИШИНА':''):'нет'}`),
+    `===================================`,
+    ''
+  ].join('\n');
+  const text = header + appLog.join('\n');
+  try{
+    await navigator.clipboard.writeText(text);
+    copyLogsBtn.textContent = '✅ Скопировано';
+  } catch(err){
+    // clipboard API can fail (permissions/insecure context) — fall back to a selectable textarea
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position='fixed'; ta.style.left='-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try{ document.execCommand('copy'); copyLogsBtn.textContent = '✅ Скопировано'; }
+    catch(err2){ copyLogsBtn.textContent = '⚠️ не вышло, скопируй вручную'; }
+    document.body.removeChild(ta);
+  }
+  copyLogsBtn.classList.add('copied');
+  setTimeout(()=>{ copyLogsBtn.textContent = '📋 Скопировать логи'; copyLogsBtn.classList.remove('copied'); }, 2000);
+});
+document.addEventListener('click', ()=> settingsPop.classList.remove('show'));
+settingsPop.addEventListener('click', e=>e.stopPropagation());
+
+/* ============================================================
+   [NN-PANEL] 🧠 neural-net tuning — presets + fine sliders, ported
+   from the «Детектор Р» reference app. Threshold/label only affect
+   drawing (cheap, instant redraw); scale/interval/normalization
+   actually change what the model sees, so those trigger a live
+   re-scan of the active clip (see runClassification/reanalyzeActive
+   above) — you watch the track's «Р» highlighting update as you drag.
+   ============================================================ */
+const NN_PRESETS = [
+  { id:'A', name:'★ А: по умолчанию', tag:'порог 0.60 / 50мс / масштаб 48000',
+    threshold:0.60, scale:48000, interval:50, normOn:false, normMin:500, normTarget:24000 },
+  { id:'B', name:'Б: норм + низкий порог', tag:'порог 0.62 / 50мс / норм→16000',
+    threshold:0.62, scale:40000, interval:50, normOn:true,  normMin:500, normTarget:16000 },
+  { id:'C', name:'В: норм умеренная', tag:'порог 0.62 / 100мс / норм→20000',
+    threshold:0.62, scale:40000, interval:100, normOn:true, normMin:800, normTarget:20000 },
+  { id:'D', name:'Г: комбо агрессивное', tag:'порог 0.58 / 50мс / масштаб 48000 / норм→16000',
+    threshold:0.58, scale:48000, interval:50, normOn:true,  normMin:500, normTarget:16000 },
+];
+let activeNnPreset = null;
+
+function renderNnPresets(){
+  nnPresetsEl.innerHTML = '';
+  NN_PRESETS.forEach(p=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'nn-preset-btn' + (activeNnPreset===p.id ? ' active' : '');
+    btn.innerHTML = `<span class="name">${p.name}</span><span class="tag">${p.tag}</span>`;
+    btn.addEventListener('click', ()=> applyNnPreset(p));
+    nnPresetsEl.appendChild(btn);
+  });
+}
+
+function applyNnPreset(p){
+  THRESHOLD = p.threshold;
+  AUDIO_SCALE = p.scale;
+  HOP = p.interval/1000;
+  NORM_ON = p.normOn;
+  NORM_MIN = p.normMin;
+  NORM_TARGET = p.normTarget;
+  activeNnPreset = p.id;
+  syncNnControls();
+  renderNnPresets();
+  throttledRedrawAll();
+  scheduleReanalyze();
+}
+
+function syncNnControls(){
+  slNnThreshold.value = THRESHOLD;      valNnThreshold.textContent = THRESHOLD.toFixed(2);
+  slNnScale.value = AUDIO_SCALE;        valNnScale.textContent = AUDIO_SCALE;
+  slNnInterval.value = Math.round(HOP*1000); valNnInterval.textContent = Math.round(HOP*1000);
+  chkNnNorm.checked = NORM_ON;
+  slNnNormMin.value = NORM_MIN;         valNnNormMin.textContent = NORM_MIN;
+  slNnNormTarget.value = NORM_TARGET;   valNnNormTarget.textContent = NORM_TARGET;
+  slNnNormMin.disabled = !NORM_ON;
+  slNnNormTarget.disabled = !NORM_ON;
+}
+renderNnPresets();
+syncNnControls();
+
+slNnThreshold.addEventListener('input', ()=>{
+  THRESHOLD = parseFloat(slNnThreshold.value);
+  valNnThreshold.textContent = THRESHOLD.toFixed(2);
+  activeNnPreset = null; renderNnPresets();
+  throttledRedrawAll(); // cheap: threshold only changes coloring, no re-scan needed
+});
+slNnInterval.addEventListener('input', ()=>{
+  HOP = parseInt(slNnInterval.value)/1000;
+  valNnInterval.textContent = slNnInterval.value;
+  activeNnPreset = null; renderNnPresets();
+  scheduleReanalyze();
+});
+slNnScale.addEventListener('input', ()=>{
+  AUDIO_SCALE = parseInt(slNnScale.value);
+  valNnScale.textContent = slNnScale.value;
+  activeNnPreset = null; renderNnPresets();
+  scheduleReanalyze();
+});
+chkNnNorm.addEventListener('change', ()=>{
+  NORM_ON = chkNnNorm.checked;
+  slNnNormMin.disabled = !NORM_ON;
+  slNnNormTarget.disabled = !NORM_ON;
+  activeNnPreset = null; renderNnPresets();
+  scheduleReanalyze();
+});
+slNnNormMin.addEventListener('input', ()=>{
+  NORM_MIN = parseInt(slNnNormMin.value);
+  valNnNormMin.textContent = slNnNormMin.value;
+  activeNnPreset = null; renderNnPresets();
+  if (NORM_ON) scheduleReanalyze();
+});
+slNnNormTarget.addEventListener('input', ()=>{
+  NORM_TARGET = parseInt(slNnNormTarget.value);
+  valNnNormTarget.textContent = slNnNormTarget.value;
+  activeNnPreset = null; renderNnPresets();
+  if (NORM_ON) scheduleReanalyze();
+});
+
+nnGear.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  const opening = !nnPanel.classList.contains('show');
+  if (opening) syncNnControls(); // подстраховка: подтягиваем актуальные значения на случай, если что-то поменялось, пока панель была закрыта
+  nnPanel.classList.toggle('show');
+  waveArea.classList.toggle('nn-open', nnPanel.classList.contains('show'));
+  settingsPop.classList.remove('show');
+});
+nnClose.addEventListener('click', (e)=>{ e.stopPropagation(); nnPanel.classList.remove('show'); waveArea.classList.remove('nn-open'); });
+document.addEventListener('click', ()=>{ nnPanel.classList.remove('show'); waveArea.classList.remove('nn-open'); });
+nnPanel.addEventListener('click', e=>e.stopPropagation());
+
+function redrawAll(){ if (activeId!==null){ const it=getActive(); drawWave(it); drawRuler(it); } updateZoneBadge(); }
+
+/* ============================================================
+   DRAG & DROP  /  FILE PICKER
+   ============================================================ */
+let dragDepth = 0;
+// видео добавляются на экран не все разом, а по одному — так коллаж красиво
+// «дорастает» плитка за плиткой, вместо того чтобы дёргано перекраиваться
+// сразу под все N файлов
+let addQueue = [];
+let addQueueBusy = false;
+function enqueueVideos(files, handles){
+  const entries = files.map((f,i)=>({file:f, handle: handles ? handles[i] : null}));
+  // не даём загрузить один и тот же файл второй раз — ни если он уже открыт,
+  // ни если он уже лежит в очереди на обработку
+  const already = new Set([...queue.map(q=>fileSig(q.file)), ...addQueue.map(e=>fileSig(e.file))]);
+  const fresh = [];
+  let skipped = 0;
+  entries.forEach(e=>{
+    const sig = fileSig(e.file);
+    if (already.has(sig)){ skipped++; return; }
+    already.add(sig); // и от дублей внутри одного и того же выбора файлов тоже
+    fresh.push(e);
+  });
+  if (skipped) toast(`⚠️ уже загружено, пропущено: ${skipped}`);
+  addQueue.push(...fresh);
+  addQueue.sort((a,b)=>a.file.size-b.file.size); // маленькие файлы всегда идут вперёд очереди, тяжёлые — в конец
+  if (!addQueueBusy) stepAddQueue();
+}
+function stepAddQueue(){
+  const entry = addQueue.shift();
+  if (!entry){ addQueueBusy = false; return; }
+  addQueueBusy = true;
+  addVideo(entry.file, entry.handle);
+  setTimeout(stepAddQueue, 220);
+}
+// capture phase, on document — fires before anything else on the page could swallow
+// the event or stop it bubbling, so the browser's own "just open this file" default
+// action never gets a chance to kick in
+document.addEventListener('dragenter', e=>{ e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); }, true);
+document.addEventListener('dragover', e=> e.preventDefault(), true);
+document.addEventListener('dragleave', e=>{ dragDepth--; if (dragDepth<=0){ dragDepth=0; document.body.classList.remove('dragging'); } }, true);
+document.addEventListener('drop', e=>{
+  e.preventDefault(); // must be the very first thing — this is what stops the browser navigating to the dropped file
+  logEvent('DROP-FIRED', `types=[${[...(e.dataTransfer?.types||[])].join(',')}] fileCount=${e.dataTransfer?.files?.length ?? '?'}`);
+  dragDepth=0; document.body.classList.remove('dragging');
+  try {
+    const items = [...(e.dataTransfer?.items || [])];
+    const supportsHandles = items.length && typeof items[0].getAsFileSystemHandle === 'function';
+    if (supportsHandles){
+      // getAsFileSystemHandle() даёт хэндл на файл на диске (без пути!) — сама по себе
+      // не спрашивает никакого разрешения, это просто ссылка. Разрешение на ЗАПИСЬ
+      // запросится только когда реально понадобится записать (см. writeMetaToFile) —
+      // для одиночных файлов, закинутых дропом, это будет один нативный вопрос браузера
+      // на каждый файл при первой реальной записи. Если такие вопросы совсем не нужны —
+      // используй кнопку "открыть папку целиком" ниже: там разрешение спрашивается
+      // ОДИН раз на всю папку, и дальше ни один файл внутри неё вопросов не задаёт.
+      Promise.all(items.filter(it=>it.kind==='file').map(it=>it.getAsFileSystemHandle()))
+        .then(handles=>Promise.all(handles.map(async h=>{
+          if (!h || h.kind!=='file') return null;
+          const file = await h.getFile();
+          return { file, handle: h };
+        })))
+        .then(pairs=>{
+          const valid = pairs.filter(p=>p && isVideoFile(p.file));
+          logEvent('DROP-HANDLES', `count=${valid.length}`);
+          enqueueVideos(valid.map(p=>p.file), valid.map(p=>p.handle));
+        })
+        .catch(err=>{
+          logEvent('DROP-HANDLE-FALLBACK', String(err && err.message || err) + ' — читаю как обычные файлы, без права записи');
+          const all = [...(e.dataTransfer?.files || [])];
+          enqueueVideos(all.filter(isVideoFile));
+        });
+      return;
+    }
+    const all = [...(e.dataTransfer?.files || [])];
+    const files = all.filter(isVideoFile);
+    const rejected = all.filter(f => !isVideoFile(f));
+    if (rejected.length) logEvent('DROP-REJECTED', rejected.map(f=>`"${f.name}" type="${f.type}"`).join('; '));
+    if (!all.length) logEvent('DROP-EMPTY', 'dataTransfer.files был пуст — возможно, это была не обычная перетаскиваемая ссылка/файл, а что-то другое (текст, изображение из другой вкладки и т.п.)');
+    enqueueVideos(files);
+  } catch(err){
+    logEvent('DROP-HANDLER-ERROR', String(err && err.stack || err));
+  }
+}, true);
+fileInput.addEventListener('change', ()=>{
+  logEvent('FILE-PICKER', `count=${fileInput.files.length}`);
+  enqueueVideos([...fileInput.files]); // классический <input> не даёт хэндл на запись — без него метаданные не перезапишутся в файл
+  fileInput.value = '';
+});
+
+// Открыть папку целиком: ОДИН диалог разрешения на всю папку сразу (mode:'readwrite'),
+// а не по одному на файл. Все хэндлы файлов внутри неё наследуют это разрешение —
+// дальше, сколько бы видео ты ни отметил, ни один из них не спросит повторно.
+// Физически на диск пишутся (перезаписываются) только те файлы, по которым реально
+// было хоть одно действие в этой сессии — остальные лежат в папке нетронутыми.
+if (openFolderBtn){
+  if (typeof window.showDirectoryPicker !== 'function'){
+    openFolderBtn.style.display = 'none'; // браузер не поддерживает (Safari/Firefox) — прячем, чтобы не обещать лишнего
+  } else {
+    openFolderBtn.addEventListener('click', async ()=>{
+      let dirHandle;
+      try {
+        dirHandle = await window.showDirectoryPicker({ mode:'readwrite' }); // единственный диалог за всю сессию
+      } catch(e){
+        if (e && e.name !== 'AbortError') logEvent('FOLDER-PICKER-ERROR', String(e && e.message || e));
+        return; // пользователь просто закрыл диалог — это не ошибка
+      }
+      const files = [], handles = [];
+      try {
+        for await (const [name, handle] of dirHandle.entries()){
+          if (handle.kind !== 'file') continue; // подпапки пока не разбираем — только файлы верхнего уровня
+          const file = await handle.getFile();
+          if (!isVideoFile(file)) continue;
+          files.push(file); handles.push(handle);
+        }
+      } catch(e){
+        logEvent('FOLDER-READ-ERROR', String(e && e.stack || e));
+      }
+      logEvent('FOLDER-PICKED', `"${dirHandle.name}" — видео найдено: ${files.length}`);
+      if (!files.length){ toast('в этой папке не нашлось видео'); return; }
+      enqueueVideos(files, handles);
+    });
+  }
+}
+
+/* ============================================================
+   QUEUE
+   ============================================================ */
+function addVideo(file, handle){
+  const probe = document.createElement('video');
+  const canPlay = probe.canPlayType(file.type) || '(пусто = браузер не уверен/не поддерживает)';
+  logEvent('ADD-FILE', `name="${file.name}" size=${file.size}B (${(file.size/1024/1024).toFixed(2)}MB) type="${file.type}" lastModified=${file.lastModified} canPlayType="${canPlay}" writeHandle=${!!handle}`);
+  const id = 'v'+Date.now()+Math.random().toString(36).slice(2,7);
+  const url = URL.createObjectURL(file);
+  const item = { id, file, handle: handle || null, name: file.name.replace(/\.[^.]+$/,''), url, duration:0,
+                 samples:null, regions:[], analyzed:false, analyzing:false, progress:0, needsRescan:false,
+                 cuts:[], priorMarks:null, touched:false, removed:false }; // cuts: {t0,t1} of every 1s window already saved (✅ or ❌), used to mark zones as visited
+                                             // priorMarks: разметка, вшитая в файл в ПРОШЛЫЙ раз (если была) — читаем сразу, ниже
+                                             // touched: было ли в ЭТОЙ сессии хоть одно реальное изменение метаданных (новая метка ИЛИ удаление старой) — только тогда файл вообще трогаем
+  queue.push(item);
+  renderRail();
+  document.body.classList.add('has-video');
+  if (activeId === null) setActive(id);
+  processItem(item);
+  loadPriorMeta(item);
+}
+
+/* ============================================================
+   COLLAGE CANVAS — сетка на весь экран (как «плитка» в видеозвонках),
+   но без фиксированного "N плиток в ряд": число строк каждый раз
+   подбирается так, чтобы СУММАРНАЯ площадь, которую видео реально
+   занимают на экране, была максимальной. Если перенос на вторую
+   строку уменьшает суммарную площадь (то есть по бокам остаётся
+   пустое место, а высота выросла незначительно) — переноса не будет,
+   ряд просто станет длиннее. Плитки внутри строки делят её целиком
+   без пустот, недостающие строки (последняя неполная и т.п.) делятся
+   между собой максимально поровну (никогда «4 сверху и одна снизу»).
+   Ряды всегда укладываются в экран без остатка — камере холста
+   двигаться некуда и незачем.
+   ============================================================ */
+const GAP = 12;
+const tileEls = new Map(); // id -> {el, videoEl, progI, aspect, curW, curH}
+
+let tileDragState = null;
+
+function usableRect(){
+  const marginX = 14, marginTop = 14, marginBottom = 14, dockReserve = 96; // 96px — резерв под правый плавающий док
+  return {
+    x: marginX, y: marginTop,
+    w: Math.max(200, window.innerWidth - marginX*2 - dockReserve),
+    h: Math.max(200, window.innerHeight - marginTop - marginBottom)
+  };
+}
+
+// Делит N плиток на `rows` строк максимально поровну (каждая строка получает
+// floor(N/rows) либо на одну больше) — без «сиротливых» одиночных плиток.
+function splitRows(n, rows){
+  const counts = [];
+  for (let i=0; i<rows; i++){
+    counts.push(Math.floor(n*(i+1)/rows) - Math.floor(n*i/rows));
+  }
+  return counts;
+}
+
+function tileAspect(t){
+  return (t && t.aspect) || 0.5625; // пока пропорции неизвестны — угадываем портрет (9:16)
+}
+
+// Перебираем ВСЕ варианты числа строк (от 1 до N) и для каждого прикидываем,
+// сколько суммарно "видео-пикселей" реально уместится на экране при таком
+// разбиении (используя средние пропорции всех роликов как оценку). Берём
+// вариант с максимальной площадью — экран используется эффективнее всего,
+// а не просто "растёт вниз" при любом новом файле.
+// Считаем "естественную" высоту ряда — во всю ширину экрана, без оглядки на
+// то, сколько высоты ему "положено" по числу строк. Дальше все ряды разом
+// масштабируются, чтобы их сумма ровно (день в день) влезла в area.h. Так
+// ряды с разными пропорциями (портретные/широкие ролики вперемешку) никогда
+// не оставляют чёрную полосу друг под другом — они всегда встык.
+function naturalRowHeights(entries, counts, area){
+  let idx = 0;
+  const heights = [];
+  counts.forEach(count=>{
+    const rowEntries = entries.slice(idx, idx+count);
+    idx += count;
+    const gaps = (count-1)*GAP;
+    const aspectSum = rowEntries.reduce((s,e)=> s + tileAspect(e.t), 0);
+    heights.push((area.w - gaps) / aspectSum);
+  });
+  return heights;
+}
+
+function pickRowCount(entries, area){
+  const n = entries.length;
+  if (n <= 1) return 1;
+
+  let bestRows = 1, bestArea = -1;
+  for (let rows=1; rows<=n; rows++){
+    const counts = splitRows(n, rows);
+    const heights = naturalRowHeights(entries, counts, area);
+    const naturalTotal = heights.reduce((a,b)=>a+b,0) + (rows-1)*GAP;
+    // если естественная сумма высот рядов больше отведённого места — все ряды
+    // равномерно ужмутся этим же коэффициентом при реальной раскладке, так что
+    // сравнивать варианты по площади нужно уже с учётом этого ужимания.
+    const scale = Math.min(1, (area.h - (rows-1)*GAP) / Math.max(1, heights.reduce((a,b)=>a+b,0)));
+    let totalArea = 0;
+    let idx = 0;
+    counts.forEach((count, i)=>{
+      const rowEntries = entries.slice(idx, idx+count);
+      idx += count;
+      const h = heights[i]*scale;
+      const aspectSum = rowEntries.reduce((s,e)=> s + tileAspect(e.t), 0);
+      totalArea += h*h*aspectSum;
+    });
+    if (totalArea > bestArea){ bestArea = totalArea; bestRows = rows; }
+  }
+  return bestRows;
+}
+
+function layoutTiles(){
+  const area = usableRect();
+  const entries = queue.map(item=>({item, t: tileEls.get(item.id)})).filter(x=>x.t);
+  const n = entries.length;
+  if (!n) return;
+
+  const rows = pickRowCount(entries, area);
+  const counts = splitRows(n, rows);
+
+  // естественные высоты рядов (без crop/растяжения пропорций), затем единый
+  // масштаб на ВСЕ ряды разом, чтобы сумма высот + зазоры ровно совпала с
+  // высотой экрана — никаких индивидуальных "бюджетов на ряд" и, как
+  // следствие, никаких пустых чёрных полос между рядами.
+  const naturalHeights = naturalRowHeights(entries, counts, area);
+  const naturalSum = naturalHeights.reduce((a,b)=>a+b,0);
+  const availableH = area.h - (rows-1)*GAP;
+  const scale = naturalSum > 0 ? Math.min(1, availableH / naturalSum) : 1;
+
+  let idx = 0, y = area.y;
+  counts.forEach((count, i)=>{
+    const rowEntries = entries.slice(idx, idx+count);
+    idx += count;
+    const gaps = (count-1)*GAP;
+    const aspectSum = rowEntries.reduce((s,e)=> s + tileAspect(e.t), 0);
+
+    const rowH = naturalHeights[i]*scale;
+    const rowW = rowH*aspectSum + gaps;
+
+    let x = area.x + (area.w - rowW)/2;      // центр по горизонтали
+    const rowY = y;                          // ряды трамбуются к верху встык друг к другу —
+                                              // высота ряда всегда его РЕАЛЬНАЯ высота, без резервов
+
+    rowEntries.forEach(({item, t})=>{
+      const w = rowH * tileAspect(t);
+      t.curW = w; t.curH = rowH;
+      if (tileDragState?.id !== item.id){
+        t.el.style.left = x+'px';
+        t.el.style.top = rowY+'px';
+        t.el.style.width = w+'px';
+        t.el.style.height = rowH+'px';
+      }
+      x += w + GAP;
+    });
+    y += rowH + GAP; // строго встык, без пустот
+  });
+
+  // сетка всегда рассчитана так, чтобы точно совпасть с экраном —
+  // камере холста двигаться некуда и незачем.
+  canvasWorld.style.transform = 'translate(0,0)';
+}
+
+function nearestIndexForPoint(px, py, excludeId){
+  let best = -1, bestDist = Infinity;
+  queue.forEach((item, i)=>{
+    if (item.id === excludeId) return;
+    const t = tileEls.get(item.id);
+    if (!t) return;
+    const cx = (parseFloat(t.el.style.left)||0) + (t.curW||130)/2;
+    const cy = (parseFloat(t.el.style.top)||0) + (t.curH||130)/2;
+    const d = (px-cx)**2 + (py-cy)**2;
+    if (d < bestDist){ bestDist = d; best = i; }
+  });
+  return best < 0 ? queue.length-1 : best;
+}
+
+// pointermove при перетаскивании плитки может стрелять чаще, чем нужно layoutTiles()
+// (которая перебирает все варианты числа строк) — поэтому во время драга зовём
+// именно троттленную версию, а не layoutTiles() напрямую.
+const throttledLayoutTiles = rafThrottle(layoutTiles);
+
+function makeTile(item){
+  const el = document.createElement('div');
+  el.className = 'tile';
+  el.style.height = '130px';
+  el.style.width = '130px'; // временный размер-заглушка, тут же пересчитается layoutTiles()
+  el.title = item.name;
+
+  const v = document.createElement('video');
+  v.src = item.url; v.muted = true; v.playsInline = true; v.preload = 'metadata';
+  v.addEventListener('loadedmetadata', ()=>{
+    try{ v.currentTime = Math.min(0.15, v.duration/2||0); }catch(e){}
+    if (v.videoWidth && v.videoHeight){
+      const t = tileEls.get(item.id);
+      t.aspect = v.videoWidth / v.videoHeight;
+      layoutTiles(); // пересчитать сетку теперь уже с точными пропорциями, а не угадыванием
+    }
+  }, {once:true});
+  // как только кадр-превью отрисован — снимаем его в статичную картинку и убираем
+  // сам <video>, чтобы при большом числе загруженных роликов браузер не держал
+  // десятки одновременных видео-декодеров (это только для миниатюры в коллаже,
+  // основной проигрыватель — отдельный элемент и не затрагивается)
+  let snapped = false;
+  function snapshotTile(){
+    if (snapped) return; snapped = true;
+    try{
+      if (!v.isConnected || !v.videoWidth || !v.videoHeight) return; // тайл уже удалён или кадр не готов — пропускаем
+      const cnv = document.createElement('canvas');
+      cnv.width = v.videoWidth; cnv.height = v.videoHeight;
+      cnv.getContext('2d').drawImage(v, 0, 0);
+      // toBlob() вместо toDataURL() — тот же результат (картинка), но готовится в фоне,
+      // не задерживая интерфейс на долю секунды, и не раздувает память длинной base64-строкой
+      cnv.toBlob(blob=>{
+        if (!blob || !v.isConnected) return; // тайл могли успеть удалить, пока блоб готовился
+        const img = document.createElement('img');
+        img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;';
+        img.src = URL.createObjectURL(blob);
+        img.onload = ()=>{ try{ URL.revokeObjectURL(img.src); }catch(e){} };
+        v.replaceWith(img);
+        const t = tileEls.get(item.id);
+        if (t) t.videoEl = img;
+      }, 'image/jpeg', 0.72);
+    }catch(e){ /* если сорвалось (напр. CORS) — просто оставляем живое видео как раньше */ }
+  }
+  v.addEventListener('seeked', snapshotTile, {once:true});
+  // подстраховка: если currentTime уже был равен целевому значению (короткие/нулевые
+  // по длительности видео) — событие seeked не всегда стреляет, поэтому форсируем
+  // тот же снимок чуть позже, даже если seeked так и не пришёл
+  v.addEventListener('loadedmetadata', ()=> setTimeout(snapshotTile, 400), {once:true});
+
+  const lbl = document.createElement('div');
+  lbl.className = 'lbl'; lbl.textContent = item.name;
+
+  const x = document.createElement('span');
+  x.className = 'x'; x.textContent = '✕';
+  x.addEventListener('click', ev=>{ ev.stopPropagation(); removeItem(item.id); });
+
+  const prog = document.createElement('div');
+  prog.className = 'prog';
+  const progI = document.createElement('i');
+  prog.appendChild(progI);
+
+  const posBadge = document.createElement('span');
+  posBadge.className = 'badge badge-pos'; posBadge.title = 'сохранено ✅ из этого видео';
+  const negBadge = document.createElement('span');
+  negBadge.className = 'badge badge-neg'; negBadge.title = 'сохранено ❌ из этого видео';
+
+  el.append(v, lbl, x, prog, posBadge, negBadge);
+  canvasWorld.appendChild(el);
+  tileEls.set(item.id, {el, videoEl:v, progI, posBadge, negBadge, aspect:null, curW:null, curH:null});
+
+  el.addEventListener('pointerdown', ev=>{
+    if (ev.target === x) return;
+    ev.preventDefault();
+    // считаем смещение курсора от СЫРОЙ позиции плитки (её style.left/top в
+    // системе координат canvasWorld), а не от getBoundingClientRect() — тот
+    // включает CSS-трансформацию активной плитки (scale при .active), из-за
+    // чего смещение курсора уезжало и драг «дёргался»/не попадал под курсор.
+    const worldRect = canvasWorld.getBoundingClientRect();
+    const curLeft = parseFloat(el.style.left)||0;
+    const curTop = parseFloat(el.style.top)||0;
+    tileDragState = {
+      id:item.id, moved:false,
+      offX: (ev.clientX - worldRect.left) - curLeft,
+      offY: (ev.clientY - worldRect.top) - curTop
+    };
+    el.setPointerCapture(ev.pointerId);
+  });
+  el.addEventListener('pointermove', ev=>{
+    if (!tileDragState || tileDragState.id !== item.id) return;
+    const worldRect = canvasWorld.getBoundingClientRect();
+    const nx = ev.clientX - worldRect.left - tileDragState.offX;
+    const ny = ev.clientY - worldRect.top - tileDragState.offY;
+    if (!tileDragState.moved){
+      const curLeft = parseFloat(el.style.left)||0;
+      const curTop = parseFloat(el.style.top)||0;
+      if (Math.abs(nx-curLeft)+Math.abs(ny-curTop) < 5) return;
+    }
+    tileDragState.moved = true;
+    el.classList.add('dragging');
+    el.style.left = nx+'px'; el.style.top = ny+'px';
+    const t = tileEls.get(item.id);
+    const targetIndex = nearestIndexForPoint(nx + (t.curW||130)/2, ny + (t.curH||130)/2, item.id);
+    const curIndex = queue.findIndex(q=>q.id===item.id);
+    if (targetIndex !== curIndex && targetIndex >= 0){
+      const [moved] = queue.splice(curIndex,1);
+      queue.splice(targetIndex,0,moved);
+      throttledLayoutTiles();
+    }
+  });
+  el.addEventListener('pointerup', ev=>{
+    if (!tileDragState || tileDragState.id !== item.id) return;
+    el.classList.remove('dragging');
+    const wasDrag = tileDragState.moved;
+    tileDragState = null;
+    layoutTiles();
+    if (!wasDrag){ userPickedManually = true; setActive(item.id); }
+  });
+}
+
+// пока несколько видео разбираются одновременно, каждое из них может дёргать
+// перерисовку сетки много раз в секунду — объединяем такие частые вызовы
+// в один раз за кадр браузера, вместо того чтобы пересчитывать сетку
+// отдельно на каждое дёрганье каждого видео
+let renderRailScheduled = false;
+function scheduleRenderRail(){
+  if (renderRailScheduled) return;
+  renderRailScheduled = true;
+  requestAnimationFrame(()=>{ renderRailScheduled = false; renderRail(); });
+}
+function renderRail(){
+  // убираем плитки для видео, которых больше нет в очереди
+  [...tileEls.keys()].forEach(id=>{
+    if (!queue.find(q=>q.id===id)){
+      tileEls.get(id).el.remove();
+      tileEls.delete(id);
+    }
+  });
+  queue.forEach(item=>{
+    if (!tileEls.has(item.id)) makeTile(item);
+    const t = tileEls.get(item.id);
+    let overall;
+    if (item.analyzed) overall = 1;
+    else if (item.samples) overall = 0.5 + (item.progress||0)*0.5;
+    else overall = (item._captureProgress||0)*0.5;
+    t.progI.style.width = (overall*100|0)+'%';
+    t.el.classList.toggle('active', item.id===activeId);
+  });
+  layoutTiles();
+}
+window.addEventListener('resize', rafThrottle(()=>{ layoutTiles(); }));
+
+async function removeItem(id){
+  const idx = queue.findIndex(q=>q.id===id);
+  if (idx<0) return;
+  const item = queue[idx];
+
+  // если уже стоит отложенное автосохранение — отменяем его и пишем сразу,
+  // чтобы не столкнуть два параллельных createWritable() на один файл
+  const pending = pendingSaveTimers.get(id);
+  if (pending){ clearTimeout(pending); pendingSaveTimers.delete(id); }
+  dirtyItems.delete(id);
+
+  // если по этому видео что-то реально отмечено — вшиваем метки в сам файл
+  // ПЕРЕД тем, как его убрать из очереди (если нечего вшивать — файл не трогаем).
+  // 'error' — это НЕ "файл открыт без права записи с самого начала" (это уже
+  // всплывало тостом при первой же отметке и повторно спрашивать тут не о чем),
+  // а именно свежая неудача записи (пропало разрешение, диск отказал и т.п.) —
+  // раньше в этом случае плитка всё равно молча пропадала с экрана, будто всё
+  // сохранилось. Теперь сперва спрашиваем.
+  const writeResult = await writeMetaToFile(item);
+  if (writeResult === 'error'){
+    const proceed = confirm(
+      `Не удалось вшить пометки «${item.name}» в сам видеофайл (см. уведомление выше).\n\n`+
+      `Вырезанные .wav-кусочки не пропадут — они останутся в общем архиве на выгрузку.\n`+
+      `Но если убрать видео сейчас, при следующем открытии этого файла программа не будет\n`+
+      `знать, что он уже проверен — пунктирных рамок прошлого прогона не будет.\n\n`+
+      `Всё равно убрать видео из списка?`
+    );
+    if (!proceed){
+      scheduleMetaSave(item); // не отменяем изменения — просто пробуем сохранить ещё раз чуть позже, как обычно
+      return;
+    }
+  }
+
+  URL.revokeObjectURL(item.url);
+  item.removed = true; // теперь точно убираем — фоновый анализ/декод этого видео (если ещё идёт) на это сориентируется и остановится
+  // подчищаем «висячие» ссылки на вырезки этого видео — сами вырезанные
+  // аудио остаются в архиве (окBucket/badBucket), удаляется только запись-указатель
+  [...cutIndex.keys()].forEach(key=>{ if (key.startsWith(id+'|')) cutIndex.delete(key); });
+  const freshIdx = queue.findIndex(q=>q.id===id); // очередь могла переупорядочиться перетаскиванием, пока шло сохранение выше — ищем позицию заново
+  if (freshIdx >= 0) queue.splice(freshIdx,1);
+  if (activeId === id){
+    activeId = null;
+    if (queue.length) setActive(queue[0].id);
+    else { document.body.classList.remove('has-video'); video.removeAttribute('src'); }
+  }
+  renderRail();
+}
+
+function getActive(){ return queue.find(q=>q.id===activeId) || null; }
+
+// Главный <video> (тот, с которым реально работаем — играем, режем, слушаем)
+// не имеет собственного места на экране: он всегда встаёт ровно поверх
+// плитки активного клипа в коллаже — той же позиции/размера/скруглений,
+// и просто "закрывает" её статичный превью-кадр собой. Кликнул по другой
+// плитке — setActive() поменял activeId — и на СЛЕДУЮЩЕМ кадре rAF-луп ниже
+// сам переставит видео на новое место. Никакой отдельной фиксированной
+// коробки в углу экрана быть не должно.
+let lastVideoRect = null; // кэш последних применённых координат — не переписываем style, если ничего не изменилось (эта функция дёргается каждый кадр)
+function positionVideoOverActiveTile(){
+  const t = tileEls.get(activeId);
+  if (!t) return;
+  const r = t.el.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  if (lastVideoRect && lastVideoRect.left===r.left && lastVideoRect.top===r.top && lastVideoRect.width===r.width && lastVideoRect.height===r.height) return;
+  lastVideoRect = { left:r.left, top:r.top, width:r.width, height:r.height };
+  video.style.left = r.left+'px';
+  video.style.top = r.top+'px';
+  video.style.width = r.width+'px';
+  video.style.height = r.height+'px';
+}
+(function videoFollowLoop(){
+  if (activeId) { positionVideoOverActiveTile(); syncTapBox(); }
+  requestAnimationFrame(videoFollowLoop);
+})();
+
+function setActive(id){
+  stopPreview();
+  activeId = id;
+  const item = getActive();
+  if (!item) return;
+  if (item.samples && item.needsRescan){ item.needsRescan = false; reanalyzeActive(false); } // params changed while this clip wasn't active — catch it up now
+  positionVideoOverActiveTile();
+  video.src = item.url;
+  video.currentTime = 0;
+  selStart = 0;
+  renderRail();
+  video.onloadedmetadata = () => {
+    item.duration = video.duration;
+    logEvent('VIDEO-METADATA-OK', `name="${item.name}" duration=${video.duration.toFixed(3)}s videoW=${video.videoWidth} videoH=${video.videoHeight}`);
+    computeFit(item);
+    pxPerSec = item.pxPerSec || fitPxPerSec;
+    resizeCanvas(item);
+    drawWave(item);
+    drawRuler(item);
+    positionSel();
+    updatePlayLine();
+    updateZoneBadge();
+  };
+  video.onerror = () => {
+    const err = video.error;
+    const codes = {1:'ABORTED',2:'NETWORK',3:'DECODE',4:'SRC_NOT_SUPPORTED'};
+    const msg = err ? `code=${err.code} (${codes[err.code]||'?'}) message="${err.message||''}"` : 'unknown';
+    logEvent('VIDEO-ELEMENT-ERROR', `name="${item.name}" ${msg}`);
+    statusEl.textContent = '⚠️ браузер не смог открыть это видео (см. логи в ⚙️)';
+  };
+  updateZoneBadge();
+}
+
+function computeFit(item){
+  const containerW = waveScroll.clientWidth || 300;
+  fitPxPerSec = containerW / Math.max(0.001, item.duration);
+}
+
+/* ============================================================
+   AUDIO CAPTURE  (via real background playback, not decodeAudioData)
+
+   decodeAudioData() crashes the whole tab on certain phone-exported MP4s
+   (known Chromium bug with some AAC variants — vertical CapCut/InShot
+   exports trigger it a lot). It's a native crash, not a JS exception, so
+   it can't be try/caught or recovered from after the fact.
+
+   Instead we play the file in a hidden, muted <video> and tap the audio
+   graph with a ScriptProcessorNode while it plays — this reuses the exact
+   same decoder that already proved it can open the file (video metadata
+   loaded fine), so it doesn't hit the crashing code path at all. The
+   trade-off: it takes as long as the clip's real duration to capture,
+   instead of being near-instant.
+   ============================================================ */
+// «проблемные» видео (для которых быстрый decodeAudioData не сработал) обрабатываются
+// медленным способом — реальным проигрыванием в фоне. Если таких видео среди
+// загруженных несколько, нельзя проигрывать их все одновременно (перегрузит вкладку),
+// поэтому такие медленные заходы выстраиваются в свою отдельную очередь по одному
+let slowCaptureChain = Promise.resolve();
+function runSlowCapture(fn){
+  const run = slowCaptureChain.then(fn, fn);
+  slowCaptureChain = run.then(()=>{}, ()=>{});
+  return run;
+}
+
+function captureAudioViaPlayback(item){
+  return new Promise((resolve, reject)=>{
+    let v, ctx, srcNode, procNode, silentGain, finished = false;
+    let watchdog = null;
+    function cleanup(){
+      if (watchdog){ clearTimeout(watchdog); watchdog = null; }
+      try{ if (v){ v.pause(); v.src=''; v.load(); v.remove(); } }catch(e){}
+      try{ srcNode && srcNode.disconnect(); }catch(e){}
+      try{ procNode && procNode.disconnect(); }catch(e){}
+      try{ silentGain && silentGain.disconnect(); }catch(e){}
+      try{ ctx && ctx.close(); }catch(e){}
+    }
+    function fail(err){ if (finished) return; finished = true; cleanup(); reject(err); }
+    // Сторож: если звук перестанет идти дольше 20с (браузер иногда сам тормозит
+    // фоновые/невидимые вкладки, и воспроизведение зависает без единой ошибки) —
+    // не ждём вечно, явно проваливаем попытку, чтобы файл не застрял навсегда.
+    function kickWatchdog(){
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(()=> fail(new Error('таймаут: воспроизведение зависло дольше 20с')), 20000);
+    }
+    kickWatchdog();
+    try {
+      v = document.createElement('video');
+      // NB: intentionally NOT muted (see note below) and intentionally playbackRate=1 —
+      // строго реальное воспроизведение 1:1, без ускорения/растяжения. Для датасета
+      // обучающих сэмплов исходный сигнал нельзя трогать никакими трюками со скоростью,
+      // даже теоретически «безопасными» для расчёта — не стоит того риска.
+      v.playsInline = true; v.preload = 'auto';
+      v.style.cssText = 'position:fixed; left:-9999px; top:-9999px; width:2px; height:2px;';
+      v.src = item.url;
+      document.body.appendChild(v);
+      ctx = new (window.AudioContext||window.webkitAudioContext)();
+      const chunks = [];
+      let lastUiTick = 0;
+      v.onloadedmetadata = () => {
+        try {
+          srcNode = ctx.createMediaElementSource(v);
+          procNode = ctx.createScriptProcessor(4096, 2, 2);
+          silentGain = ctx.createGain(); silentGain.gain.value = 0; // must route to destination to run, but silent — nothing audible
+          srcNode.connect(procNode);
+          procNode.connect(silentGain);
+          silentGain.connect(ctx.destination);
+          procNode.onaudioprocess = e=>{
+            kickWatchdog(); // звук реально идёт прямо сейчас — сторожу пока не нужно срабатывать
+            const l = e.inputBuffer.getChannelData(0);
+            const r = e.inputBuffer.numberOfChannels>1 ? e.inputBuffer.getChannelData(1) : l;
+            const mono = new Float32Array(l.length);
+            for (let i=0;i<l.length;i++) mono[i] = (l[i]+r[i])*0.5;
+            chunks.push(mono);
+            item._captureProgress = v.duration ? Math.min(1, v.currentTime/v.duration) : 0;
+            // живой прогресс — не чаще раз в ~150мс, чтобы не грузить рендер
+            const now = performance.now();
+            if (now - lastUiTick > 150){
+              lastUiTick = now;
+              renderRail();
+              if (item.id === activeId) drawWave(item);
+            }
+          };
+          v.play().catch(fail);
+        } catch(err){ fail(err); }
+      };
+      v.onerror = () => fail(new Error('video element error during audio capture, code='+(v.error&&v.error.code)));
+      v.onended = () => {
+        if (finished) return; finished = true;
+        const total = chunks.reduce((s,a)=>s+a.length,0);
+        const merged = new Float32Array(total);
+        let off=0; for (const c of chunks){ merged.set(c,off); off+=c.length; }
+        const rate = ctx.sampleRate;
+        // диагностика "реально ли был звук в файле" — байты, которые браузер сам декодировал
+        const decodedBytes = v.webkitAudioDecodedByteCount; // Chrome-only, undefined в других браузерах
+        logEvent('CAPTURE-DEBUG', `name="${item.name}" webkitAudioDecodedByteCount=${decodedBytes===undefined?'н/д (не Chrome)':decodedBytes}`);
+        cleanup();
+        resolve({ samples: merged, sampleRate: rate });
+      };
+      v.onstalled = () => logEvent('CAPTURE-STALLED', `name="${item.name}" (браузер приостановил буферизацию — обычно временно)`);
+    } catch(err){ fail(err); }
+  });
+}
+
+// живой прогресс захвата звука теперь отрисовывается прямо в drawWave() —
+// см. ветку "if (!item.samples)" внутри неё — а не текстом в центре экрана
+
+/* ============================================================
+   FALLBACK AUDIO CAPTURE  (метод 2, включается автоматически, если
+   метод 1 выше дал тишину)
+
+   Другой независимый путь: captureStream() снимает живой медиапоток
+   прямо с элемента (а не с уже декодированного буфера), пишем его
+   через MediaRecorder в webm/opus, и уже ЭТОТ маленький свежесжатый
+   файл (не оригинальный проблемный AAC из телефона) прогоняем через
+   decodeAudioData — так безопаснее: краш-баг Chromium был именно в
+   декодере некоторых вариантов AAC, а не в Opus, который тут
+   получается заново из-под MediaRecorder.
+   ============================================================ */
+function peakAmplitude(samples){
+  let peak = 0;
+  const stride = Math.max(1, Math.floor(samples.length/200000));
+  for (let i=0;i<samples.length;i+=stride){ const a = Math.abs(samples[i]); if (a>peak) peak = a; }
+  return peak;
+}
+const SILENCE_PEAK = 0.003; // ниже этого считаем дорожку практически тишиной
+
+function captureAudioViaRecorder(item){
+  return new Promise((resolve, reject)=>{
+    let v, rec, stream, finished = false;
+    let watchdog = null;
+    function cleanup(){
+      if (watchdog){ clearTimeout(watchdog); watchdog = null; }
+      try{ if (rec && rec.state!=='inactive') rec.stop(); }catch(e){}
+      try{ if (v){ v.pause(); v.src=''; v.load(); v.remove(); } }catch(e){}
+      try{ stream && stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    }
+    function fail(err){ if (finished) return; finished = true; cleanup(); reject(err); }
+    // Тот же сторож, что и в captureAudioViaPlayback выше: если видео зависнет
+    // (currentTime дольше 20с не двигается) — не ждём вечно, явно проваливаем попытку.
+    function kickWatchdog(){
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(()=> fail(new Error('таймаут: воспроизведение зависло дольше 20с')), 20000);
+    }
+    kickWatchdog();
+    try {
+      v = document.createElement('video');
+      v.playsInline = true; v.preload = 'auto';
+      v.style.cssText = 'position:fixed; left:-9999px; top:-9999px; width:2px; height:2px;';
+      v.src = item.url;
+      document.body.appendChild(v);
+      v.ontimeupdate = () => kickWatchdog(); // время реально идёт — сторожу пока не нужно срабатывать
+      v.onloadedmetadata = () => {
+        try {
+          if (!v.captureStream){ fail(new Error('captureStream() не поддерживается этим браузером')); return; }
+          stream = v.captureStream();
+          const audioTracks = stream.getAudioTracks();
+          // INTENTIONAL: owner's source files are always single-audio-track (downloaded
+          // YouTube videos, one consistent format). Multi-track audio will never occur
+          // in practice — do not flag this as a bug again.
+          if (!audioTracks.length){ fail(new Error('в captureStream() нет аудиодорожки — похоже, у самого файла нет звука')); return; }
+          const chunks = [];
+          const mime = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus']
+            .find(m => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m));
+          rec = new MediaRecorder(new MediaStream(audioTracks), mime ? {mimeType:mime} : undefined);
+          rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+          rec.onerror = e => fail(e.error || new Error('MediaRecorder error'));
+          rec.onstop = async () => {
+            if (finished) return; finished = true;
+            try {
+              const blob = new Blob(chunks, {type: mime || 'audio/webm'});
+              const buf = await blob.arrayBuffer();
+              const decodeCtx = new (window.AudioContext||window.webkitAudioContext)();
+              const audioBuf = await decodeCtx.decodeAudioData(buf); // безопасно: это НАШ свежий opus, не исходный AAC
+              const ch0 = audioBuf.getChannelData(0);
+              const samples = ch0.slice();
+              const rate = audioBuf.sampleRate;
+              try{ decodeCtx.close(); }catch(e){}
+              cleanup();
+              resolve({ samples, sampleRate: rate });
+            } catch(err){ fail(err); }
+          };
+          rec.start();
+          v.play().catch(fail);
+        } catch(err){ fail(err); }
+      };
+      v.onerror = () => fail(new Error('video element error during fallback capture, code='+(v.error&&v.error.code)));
+      v.onended = () => { try{ if (rec && rec.state!=='inactive') rec.stop(); }catch(e){} };
+    } catch(err){ fail(err); }
+  });
+}
+
+/* ============================================================
+   DECODE + RESAMPLE TO 16kHz MONO  +  ML ANALYSIS
+   ============================================================ */
+async function processItem(item){
+  autoFollow(item);
+  item.analyzing = true;
+  logEvent('DECODE-START', `name="${item.name}" file.type="${item.file.type}" file.size=${item.file.size}B`);
+  try {
+
+    const sig = fileSig(item.file);
+    let rawSamples = null, rawRate = 0;
+
+    if (crashBlocklist.has(sig)){
+      logEvent('DECODE-SKIPPED-BLOCKLIST', `name="${item.name}" — этот файл уже ронял вкладку на decodeAudioData раньше, сразу используем безопасный метод`);
+    } else {
+      try {
+        addPendingDecode(sig); // если вкладка сейчас упадёт, при следующей загрузке это увидим (безопасно и при нескольких видео разом)
+        logEvent('DECODE-ATTEMPT', `name="${item.name}" (метод 0: decodeAudioData, быстрый)`);
+        const buf = await item.file.arrayBuffer();
+        const decodeCtx = new (window.AudioContext||window.webkitAudioContext)();
+        const audioBuf = await decodeCtx.decodeAudioData(buf);
+        rawSamples = audioBuf.getChannelData(0).slice();
+        rawRate = audioBuf.sampleRate;
+        try{ decodeCtx.close(); }catch(e){}
+        removePendingDecode(sig);
+        logEvent('DECODE-OK', `name="${item.name}" samples=${rawSamples.length} rate=${rawRate}`);
+      } catch(err){
+        // сюда попадаем только если браузер сам аккуратно отклонил промис (JS-исключение) —
+        // значит вкладка не падала, просто decodeAudioData не смог. Это не краш, чёрный список не нужен.
+        removePendingDecode(sig);
+        logEvent('DECODE-FAIL-FALLTHROUGH', `name="${item.name}" decodeAudioData бросил исключение (поймали, не краш) error="${err && err.message}" — переходим на безопасный метод`);
+        rawSamples = null;
+      }
+    }
+
+    if (!rawSamples){
+      logEvent('CAPTURE-START', `name="${item.name}" (метод 1: реальное воспроизведение в фоне, не decodeAudioData)`);
+      const res = await runSlowCapture(()=>captureAudioViaPlayback(item));
+      rawSamples = res.samples; rawRate = res.sampleRate;
+      logEvent('CAPTURE-OK', `name="${item.name}" rawSamples=${rawSamples.length} rate=${rawRate}`);
+    }
+
+    let peak = peakAmplitude(rawSamples);
+    logEvent('PEAK-CHECK', `name="${item.name}" peak=${peak.toFixed(5)}${peak < SILENCE_PEAK ? ' ⚠️ПОХОЖЕ НА ТИШИНУ' : ''}`);
+
+    // если результат — тишина (частый симптом: у файла и правда нет рабочей аудиодорожки,
+    // см. предыдущее обсуждение) — пробуем ещё один, третий, независимый способ через
+    // captureStream()+MediaRecorder, просто чтобы дать файлу максимум шансов
+    if (peak < SILENCE_PEAK){
+      try {
+        logEvent('CAPTURE-FALLBACK-START', `name="${item.name}" (метод 2: captureStream+MediaRecorder, т.к. до этого была тишина)`);
+        const fallback = await runSlowCapture(()=>captureAudioViaRecorder(item));
+        const fallbackPeak = peakAmplitude(fallback.samples);
+        logEvent('CAPTURE-FALLBACK-OK', `name="${item.name}" rawSamples=${fallback.samples.length} rate=${fallback.sampleRate} peak=${fallbackPeak.toFixed(5)}`);
+        if (fallbackPeak > peak){ rawSamples = fallback.samples; rawRate = fallback.sampleRate; peak = fallbackPeak; }
+      } catch(fallbackErr){
+        logEvent('CAPTURE-FALLBACK-FAIL', `name="${item.name}" error="${fallbackErr && fallbackErr.message}"`);
+        // не бросаем дальше — работаем с тем, что получили раньше, даже если это тишина;
+        // человек хотя бы увидит плоскую дорожку и явное предупреждение в логах, а не краш
+      }
+    }
+
+    const offline = new OfflineAudioContext(1, Math.ceil(rawSamples.length*16000/rawRate)+1, 16000);
+    const tmpBuf = offline.createBuffer(1, rawSamples.length, rawRate);
+    tmpBuf.copyToChannel(rawSamples, 0);
+    const src = offline.createBufferSource();
+    src.buffer = tmpBuf; src.connect(offline.destination); src.start();
+    const rendered = await offline.startRendering();
+    item.samples = rendered.getChannelData(0).slice(); // Float32 [-1,1] @16kHz mono
+    item.gain = computeDisplayGain(item.samples);
+    item.peakAmplitude = peak;
+    logEvent('RESAMPLE-OK', `name="${item.name}" samples=${item.samples.length} peak=${peak.toFixed(5)}`);
+    if (peak < SILENCE_PEAK){
+      statusEl.textContent = '⚠️ звук похож на тишину — см. логи (⚙️ → 📋 Скопировать логи)';
+    }
+
+    if (item.removed) return; // видео убрали из списка, пока шло декодирование, — дальше анализировать нечего
+
+    if (item.id === activeId){ drawWave(item); drawRuler(item); }
+
+    // wait for classifier
+    while (!classifierInitialized){
+      if (classifierFailed){
+        item.analyzing = false;
+        const t = tileEls.get(item.id);
+        if (t && t.el) t.el.title = '⚠️ модель не загрузилась — анализ этого видео не выполнен';
+        statusEl.textContent = '⚠️ модель не загрузилась — распознавание для этого видео недоступно (см. логи в ⚙️)';
+        logEvent('ANALYZE-SKIPPED-NO-MODEL', `name="${item.name}" — модель так и не инициализировалась, анализ не запущен`);
+        renderRail();
+        return;
+      }
+      if (item.removed) return;
+      await sleep(150);
+    }
+
+    await runClassification(item, { toast:true });
+  } catch(err){
+    console.error(err);
+    logEvent('DECODE-FAIL', `name="${item.name}" file.type="${item.file.type}" file.size=${item.file.size}B error="${err && err.message}" stack="${err && err.stack}"`);
+    item.analyzing = false;
+    statusEl.textContent = '⚠️ не удалось прочитать аудио этого видео (см. логи в ⚙️)';
+  }
+}
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+/* ============================================================
+   NN INFERENCE  (unwrap → scale by AUDIO_SCALE → optional peak
+   normalize → classify). Shared by the first-pass analysis above
+   and by the live re-scan triggered from the 🧠 neural-net panel
+   whenever scale / interval / normalization change — see [NN-PANEL].
+   ============================================================ */
+async function runClassification(item, opts={}){
+  item.regions = [];
+  const total = item.samples.length;
+  const hopSamples = Math.max(1, Math.round(HOP*16000));
+  const winSamples = NUM_SAMPLES;
+  const win = new Float32Array(winSamples); // переиспользуется на каждом шаге вместо аллокации заново
+  // Снимаем "фотографию" настроек нейросети прямо сейчас, до начала цикла — и
+  // весь этот проход целиком считается именно с этими значениями. Раньше
+  // classifyWindow читал AUDIO_SCALE/NORM_* напрямую из глобальных переменных
+  // на каждом окне, поэтому если во время долгого прохода (длинный ролик)
+  // подвинуть ползунок в панели "Настройки нейросети", один и тот же проход
+  // мог наполовину посчитаться со старыми значениями, а наполовину — с новыми.
+  const scale = AUDIO_SCALE, normOn = NORM_ON, normMin = NORM_MIN, normTarget = NORM_TARGET;
+  // Вынесено в отдельную функцию: один и тот же код нужен и обычному циклу по hopSamples,
+  // и отдельному "хвостовому" окну ниже, которое прижато точно к концу дорожки.
+  function classifyWindow(start){
+    let peak = 0;
+    for (let k=0;k<winSamples;k++){
+      const v = Math.max(-1,Math.min(1, item.samples[start+k])) * scale;
+      win[k] = v;
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+    }
+    if (normOn && peak > normMin){
+      const gain = normTarget/peak;
+      for (let k=0;k<winSamples;k++) win[k] *= gain;
+    }
+    let conf = 0;
+    try {
+      const res = classifier.classify(win, false);
+      if (TARGET_LABEL){
+        const hit = res.results.find(r=>r.label===TARGET_LABEL);
+        if (hit) conf = hit.value;
+      } else if (res.results.length){
+        conf = Math.max(...res.results.map(r=>r.value));
+      }
+    } catch(e){ /* skip window on classifier error */ }
+    return conf;
+  }
+  let tick = 0;
+  let lastStart = -1;
+  for (let start=0; start+winSamples<=total; start+=hopSamples){
+    if (item.removed) return; // видео убрали прямо во время сканирования — не продолжаем впустую
+    const conf = classifyWindow(start);
+    item.regions.push({ t0: start/16000, t1: (start+winSamples)/16000, conf });
+    item.progress = Math.min(1, (start+winSamples)/total);
+    lastStart = start;
+    tick++;
+    if (tick % 12 === 0){
+      scheduleRenderRail();
+      if (item.id===activeId){ drawWave(item); drawRuler(item); updateZoneBadge(); }
+      await sleep(0);
+    }
+  }
+  // Если total не делится ровно на hopSamples, последний кусочек дорожки (до одного
+  // hopSamples) раньше вообще не попадал ни в одно окно — там мог остаться незамеченный
+  // "Р". Добираем его отдельным окном, прижатым точно к концу дорожки.
+  if (total >= winSamples && lastStart + winSamples < total){
+    const tailStart = total - winSamples;
+    const conf = classifyWindow(tailStart);
+    item.regions.push({ t0: tailStart/16000, t1: total/16000, conf });
+  }
+  item.progress = 1;
+  item.analyzed = true;
+  item.analyzing = false;
+  renderRail();
+  if (item.id===activeId){ drawWave(item); drawRuler(item); updateZoneBadge(); statusEl.textContent = ''; }
+  if (opts.toast) toast('✅ анализ завершён · '+item.name);
+  logEvent('ANALYZE-DONE', `name="${item.name}" regions=${item.regions.length} scale=${scale} hop=${HOP} norm=${normOn} normMin=${normMin} normTarget=${normTarget}`);
+  // Пока этот проход считался, настройки могли поменяться ещё раз (см.
+  // scheduleReanalyze ниже) — needsRescan мог выставиться и для этого же видео.
+  // Если это видео сейчас активно — сразу довели до конца ещё один, уже
+  // финальный проход с самыми последними значениями, а не молча забыли про
+  // это изменение. Если видео сейчас не активно — оставляем флажок как есть,
+  // его подхватит setActive(), когда к этому видео вернутся.
+  if (item.needsRescan && item.id === activeId){
+    item.needsRescan = false;
+    reanalyzeActive(false);
+  }
+}
+
+/* ============================================================
+   [NN-PANEL] live re-scan when neural-net params (target label / scale /
+   interval / normalization) change — threshold alone is cheap and just
+   redraws (see redrawAll()), but the rest actually change model input
+   or which model output counts as "confidence", so the active clip's
+   audio track needs to be re-run through the model.
+   Other loaded clips are marked stale and lazily re-scanned when they
+   become active (see setActive()), so switching tabs never wastes work.
+   ============================================================ */
+let reanalyzeTimer = null;
+async function reanalyzeActive(showToast){
+  const item = getActive();
+  if (!item || !item.samples || !classifierInitialized || item.analyzing) return;
+  item.analyzing = true;
+  await runClassification(item, { toast: !!showToast });
+}
+function markOtherItemsStale(){
+  queue.forEach(q => { if (q.id !== activeId && q.samples) q.needsRescan = true; });
+}
+function scheduleReanalyze(){
+  const item = getActive(); // запоминаем, для какого именно видео это запланировано
+  clearTimeout(reanalyzeTimer);
+  markOtherItemsStale();
+  reanalyzeTimer = setTimeout(()=>{
+    if (!item) return;
+    if (item.id !== activeId){ item.needsRescan = true; return; } // успели переключиться на другое видео, не дождавшись — догоним это видео, когда к нему вернёмся
+    if (item.analyzing){ item.needsRescan = true; return; } // проход для ЭТОГО ЖЕ видео уже идёт прямо сейчас — не мешаем ему на середине, попросим ещё один сразу вслед за ним (см. конец runClassification)
+    reanalyzeActive(false); // ничего не считается — пересчитываем как обычно
+  }, 220);
+}
+
+function computeDisplayGain(samples){
+  // scan for peak (99.5th percentile-ish, sampled for speed on long files) to avoid
+  // one stray spike keeping the whole waveform tiny
+  let peak = 0;
+  const stride = Math.max(1, Math.floor(samples.length/200000));
+  for (let i=0;i<samples.length;i+=stride){
+    const v = Math.abs(samples[i]);
+    if (v>peak) peak = v;
+  }
+  if (peak < 0.001) return 1;
+  return Math.min(14, Math.max(1, 0.92/peak));
+}
+
+/* ============================================================
+   WAVEFORM CANVAS
+   ============================================================ */
+function resizeCanvas(item){
+  const containerRect = waveScroll.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const dur = (item && item.duration) || 0;
+  const w = Math.max(containerRect.width, dur*pxPerSec);
+  const h = containerRect.height;
+  waveCanvas.width = w*dpr;
+  waveCanvas.height = h*dpr;
+  waveCanvas.style.width = w+'px';
+  waveCanvas.style.height = h+'px';
+  ctx2d.setTransform(dpr,0,0,dpr,0,0);
+
+  // ruler canvas: same content width as the waveform (so ticks line up 1:1), fixed row height
+  const rh = rulerRow.clientHeight || 16;
+  rulerCanvas.width = w*dpr;
+  rulerCanvas.height = rh*dpr;
+  rulerCanvas.style.width = w+'px';
+  rulerCanvas.style.height = rh+'px';
+  rulerCtx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', rafThrottle(()=>{
+  const it=getActive(); if(!it) return;
+  computeFit(it);
+  if (Math.abs(pxPerSec - (it.pxPerSec||fitPxPerSec)) < 1) pxPerSec = fitPxPerSec;
+  resizeCanvas(it); drawWave(it); drawRuler(it); positionSel(); updatePlayLine();
+}));
+
+/* ---- zoom controls ---- */
+function setZoom(item, newPx, anchorTime, anchorScreenX){
+  if (!item) return;
+  const hardMax = Math.max(fitPxPerSec, 24000/Math.max(0.001,item.duration)); // cap total canvas width ~24000px
+  newPx = Math.max(fitPxPerSec, Math.min(hardMax, newPx));
+  pxPerSec = newPx;
+  item.pxPerSec = newPx;
+  resizeCanvas(item);
+  drawWave(item);
+  drawRuler(item);
+  positionSel();
+  updatePlayLine();
+  if (anchorTime != null){
+    waveScroll.scrollLeft = Math.max(0, anchorTime*pxPerSec - anchorScreenX);
+    rulerRow.scrollLeft = waveScroll.scrollLeft;
+  }
+}
+/* zoom is done with two-finger trackpad pinch / ctrl+wheel — see waveScroll wheel handler below */
+let zoomPending = null, zoomRaf = null;
+waveScroll.addEventListener('wheel', e=>{
+  if (!e.ctrlKey && !e.metaKey) return; // ctrl/pinch = zoom, plain wheel = normal scroll
+  e.preventDefault();
+  const item=getActive(); if(!item||!item.duration) return;
+  const rect = waveScroll.getBoundingClientRect();
+  const screenX = e.clientX-rect.left;
+  const factor = e.deltaY<0 ? 1.08 : 1/1.08; // smaller step per wheel tick, batched below, for a smooth feel instead of jumpy zoom
+  const anchorT = (waveScroll.scrollLeft+screenX)/pxPerSec;
+  if (!zoomPending) zoomPending = { mult:1 };
+  zoomPending.mult *= factor;
+  zoomPending.anchorT = anchorT;
+  zoomPending.screenX = screenX;
+  if (!zoomRaf){
+    zoomRaf = requestAnimationFrame(()=>{
+      const z = zoomPending; zoomPending = null; zoomRaf = null;
+      if (z) setZoom(item, pxPerSec*z.mult, z.anchorT, z.screenX);
+    });
+  }
+}, {passive:false});
+
+// the waveform only renders the columns currently in view (perf at high zoom) — so panning
+// the track (plain scroll, no ctrl) must trigger a redraw too, or newly-scrolled-into-view
+// stretches stay blank until something else happens to force a repaint. Also keeps the
+// ruler row (separate element, outside the track) scrolling in perfect lockstep.
+let waveScrollRaf = null;
+waveScroll.addEventListener('scroll', ()=>{
+  rulerRow.scrollLeft = waveScroll.scrollLeft;
+  if (waveScrollRaf) return;
+  waveScrollRaf = requestAnimationFrame(()=>{
+    waveScrollRaf = null;
+    const item = getActive();
+    if (item){ drawWave(item); drawRuler(item); }
+  });
+});
+
+function drawWave(item){
+  renderPriorMarksLayer(item);
+  renderSessionMarksLayer(item);
+  if (!item){ ctx2d.clearRect(0,0,waveCanvas.width,waveCanvas.height); return; }
+  const w = waveCanvas.clientWidth, h = waveCanvas.clientHeight;
+
+  if (!item.samples){
+    // дорожки ещё нет — вместо текста-попапа по центру экрана визуализируем сам захват
+    // звука прямо здесь, на месте будущей дорожки: заливка растёт слева направо, как
+    // будто грузится именно волна — привычнее, чем всплывающие проценты
+    ctx2d.clearRect(0,0,w,h);
+    ctx2d.fillStyle = '#0f120d';
+    ctx2d.fillRect(0,0,w,h);
+    const p = Math.max(0, Math.min(1, item._captureProgress || 0));
+    const barW = w*p;
+    ctx2d.fillStyle = 'rgba(107,255,158,.14)';
+    ctx2d.fillRect(0,0,barW,h);
+    ctx2d.save();
+    ctx2d.shadowColor = 'rgba(107,255,158,.9)'; ctx2d.shadowBlur = 8;
+    ctx2d.strokeStyle = 'rgba(107,255,158,.95)'; ctx2d.lineWidth = 2;
+    ctx2d.beginPath(); ctx2d.moveTo(barW,2); ctx2d.lineTo(barW,h-2); ctx2d.stroke();
+    ctx2d.restore();
+    return;
+  }
+
+  ctx2d.clearRect(0,0,w,h);
+  ctx2d.fillStyle = '#0f120d';
+  ctx2d.fillRect(0,0,w,h);
+
+  const samples = item.samples;
+  const dur = item.duration || samples.length/16000;
+  const mid = h/2;
+  const pxs = w/Math.max(0.001,dur);
+  const gain = (item.gain || 1) * GAIN_BOOST;
+
+  // only render the samples currently within the visible scroll range (perf at high zoom)
+  const visL = Math.max(0, waveScroll.scrollLeft - 200);
+  const visR = Math.min(w, waveScroll.scrollLeft + waveScroll.clientWidth + 200);
+
+  // "scanned" sweep — while analyzing, wash the already-scanned portion of the
+  // track in translucent green so progress reads directly on the waveform,
+  // not just in a separate percent readout. Nothing left once analysis ends.
+  if (item.analyzing){
+    const scannedPx = item.progress*w;
+    const wL = Math.max(visL, 0), wR = Math.min(visR, scannedPx);
+    if (wR > wL){
+      ctx2d.fillStyle = 'rgba(107,255,158,.10)';
+      ctx2d.fillRect(wL, 0, wR-wL, h);
+    }
+  }
+
+  // region highlight (drawn first, under the waveform) — two tiers:
+  // green = confidently recognized (conf >= THRESHOLD)
+  // amber = borderline / suspected (NEAR_THRESHOLD <= conf < THRESHOLD)
+  // everything else stays default (no highlight)
+  const NEAR_THRESHOLD = Math.max(0.05, THRESHOLD - 0.20);
+  item.regions.forEach(r=>{
+    if (r.conf < NEAR_THRESHOLD) return;
+    const x0 = r.t0*pxs, x1 = r.t1*pxs;
+    if (x1 < visL || x0 > visR) return;
+    if (r.conf >= THRESHOLD){
+      const alpha = Math.min(1, (r.conf-THRESHOLD)/(1-THRESHOLD) * .55 + .18);
+      ctx2d.fillStyle = `rgba(107,255,158,${alpha})`; // green
+    } else {
+      const alpha = Math.min(1, (r.conf-NEAR_THRESHOLD)/(THRESHOLD-NEAR_THRESHOLD) * .45 + .12);
+      ctx2d.fillStyle = `rgba(255,176,32,${alpha})`; // amber
+    }
+    ctx2d.fillRect(x0, 4, Math.max(1.4,x1-x0), h-8);
+  });
+
+  // envelope waveform — only draw columns in the visible range (fast even at high zoom)
+  const step = Math.max(1, samples.length / w);
+  ctx2d.beginPath();
+  ctx2d.strokeStyle = '#c9c3b3';
+  ctx2d.lineWidth = 1;
+  const xStart = Math.max(0, Math.floor(visL)), xEnd = Math.min(w, Math.ceil(visR));
+  for (let x=xStart; x<xEnd; x++){
+    const s = Math.floor(x*step), e = Math.min(samples.length, Math.floor((x+1)*step)+1);
+    let mn=1, mx=-1;
+    for (let i=s;i<e;i++){ const v=samples[i]; if (v<mn) mn=v; if (v>mx) mx=v; }
+    if (mn>mx){ mn=0; mx=0; }
+    let y0 = mid + mn*mid*0.92*gain, y1 = mid + mx*mid*0.92*gain;
+    y0 = Math.max(2, Math.min(h-2, y0)); y1 = Math.max(2, Math.min(h-2, y1));
+    ctx2d.moveTo(x+0.5, y0); ctx2d.lineTo(x+0.5, y1);
+  }
+  ctx2d.stroke();
+
+  // scan-head — a bright glowing line marking exactly how far the scan has reached
+  if (item.analyzing){
+    const px = item.progress*w;
+    if (px >= visL-2 && px <= visR+2){
+      ctx2d.save();
+      ctx2d.shadowColor = 'rgba(107,255,158,.9)';
+      ctx2d.shadowBlur = 8;
+      ctx2d.strokeStyle = 'rgba(107,255,158,.95)';
+      ctx2d.lineWidth = 2;
+      ctx2d.beginPath();
+      ctx2d.moveTo(px, 2);
+      ctx2d.lineTo(px, h-2);
+      ctx2d.stroke();
+      ctx2d.restore();
+    }
+  }
+}
+
+// 1-second ruler — own row, own canvas, sits on the translucent panel below the track
+// (never clipped by the track's scrollbar). Tick + number are centered on each second mark.
+// No "s" suffix (seconds are the obvious default); switches to m:ss once past a minute.
+function rulerLabel(t){
+  t = Math.round(t);
+  if (t < 60) return String(t);
+  const m = Math.floor(t/60), s = t%60;
+  return m+':'+String(s).padStart(2,'0');
+}
+function drawRuler(item){
+  if (!item || !item.samples){ rulerCtx.clearRect(0,0,rulerCanvas.width,rulerCanvas.height); return; }
+  const w = rulerCanvas.clientWidth, h = rulerCanvas.clientHeight;
+  rulerCtx.clearRect(0,0,w,h);
+
+  const dur = item.duration || item.samples.length/16000;
+  const pxs = w/Math.max(0.001,dur);
+  const visL = Math.max(0, rulerRow.scrollLeft - 200);
+  const visR = Math.min(w, rulerRow.scrollLeft + rulerRow.clientWidth + 200);
+
+  rulerCtx.strokeStyle = 'rgba(233,228,216,.35)';
+  rulerCtx.fillStyle = 'rgba(233,228,216,.6)';
+  rulerCtx.font = '9px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+  rulerCtx.textAlign = 'center';
+  rulerCtx.textBaseline = 'top';
+  rulerCtx.lineWidth = 1;
+  const tStart = Math.max(0, Math.floor(visL/pxs) - 1);
+  const tEnd = Math.ceil(visR/pxs) + 1;
+  for (let t=tStart; t<=tEnd; t++){
+    const x = t*pxs;
+    if (x < visL-2 || x > visR+2) continue;
+    rulerCtx.beginPath();
+    rulerCtx.moveTo(x+0.5, 0);
+    rulerCtx.lineTo(x+0.5, 4);
+    rulerCtx.stroke();
+    if (pxs >= 22) rulerCtx.fillText(rulerLabel(t), x, 6);
+  }
+}
+
+/* ============================================================
+   ZONES  (merged clusters of found regions, used for Tab/Shift+Tab
+   navigation and the "unvisited zones" badge)
+   ============================================================ */
+function computeZones(item){
+  if (!item || !item.regions.length) return [];
+  const NEAR_THRESHOLD = Math.max(0.05, THRESHOLD - 0.20);
+  const hits = item.regions.filter(r => r.conf >= NEAR_THRESHOLD).sort((a,b)=>a.t0-b.t0);
+  const zones = [];
+  for (const r of hits){
+    const last = zones[zones.length-1];
+    if (last && r.t0 <= last.t1 + HOP*1.01){
+      last.t1 = Math.max(last.t1, r.t1);
+      last.maxConf = Math.max(last.maxConf, r.conf);
+    } else {
+      zones.push({ t0:r.t0, t1:r.t1, maxConf:r.conf });
+    }
+  }
+  // mark visited: zone counts as visited once a saved 1s cut overlaps it —
+  // либо отмеченное ПРЯМО СЕЙЧАС (item.cuts), либо уже вшитое в файл в
+  // прошлый раз (item.priorMarks). Раньше вторая часть не проверялась, из-за
+  // чего уже полностью проверенное в прошлый раз видео при повторном
+  // открытии показывало все зоны как непросмотренные.
+  zones.forEach(z=>{
+    const hitThisSession = item.cuts.some(c => c.t0 < z.t1 && c.t1 > z.t0);
+    const hitPriorRun = (item.priorMarks || []).some(p => p.t0 < z.t1 && p.t1 > z.t0);
+    z.visited = hitThisSession || hitPriorRun;
+  });
+  return zones;
+}
+
+function updateZoneBadge(){
+  const item = getActive();
+  if (!item){ zoneBadge.classList.remove('show'); return; }
+  const zones = computeZones(item);
+  const unvisited = zones.filter(z=>!z.visited).length;
+  if (!zones.length){ zoneBadge.classList.remove('show'); return; }
+  zoneBadgeCount.textContent = unvisited;
+  zoneBadge.style.color = unvisited>0 ? 'var(--amber)' : 'var(--green)';
+  zoneBadge.classList.add('show');
+}
+
+function jumpZone(dir){
+  stopPreview();
+  const item = getActive(); if (!item) return;
+  const zones = computeZones(item);
+  if (!zones.length){ toast('зон «Р» пока не найдено'); return; }
+  const eps = 0.01;
+  let target;
+  if (dir > 0) target = zones.find(z => z.t0 > selStart + eps);
+  else { for (let i=zones.length-1;i>=0;i--){ if (zones[i].t0 < selStart - eps){ target = zones[i]; break; } } }
+  if (!target) target = dir > 0 ? zones[0] : zones[zones.length-1]; // wrap around
+  selStart = target.t0;
+  clampSel(item);
+  positionSel();
+  updatePlayLine();
+  video.currentTime = selStart;
+}
+
+/* ============================================================
+   PLAYHEAD / TRANSPORT
+   ============================================================ */
+function fmt(t){
+  if (!isFinite(t)) t=0;
+  const m = Math.floor(t/60), s = Math.floor(t%60), ms = Math.floor((t*1000)%1000);
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+}
+video.addEventListener('timeupdate', ()=>{
+  timecodeEl.textContent = fmt(video.currentTime) + (video.duration ? ' / '+fmt(video.duration) : '');
+  updatePlayLine();
+});
+let rafId = null;
+function playLineLoop(){
+  timecodeEl.textContent = fmt(video.currentTime) + (video.duration ? ' / '+fmt(video.duration) : '');
+  updatePlayLine();
+  if (!video.paused && !video.ended) rafId = requestAnimationFrame(playLineLoop);
+}
+video.addEventListener('play', ()=>{
+  playBtn.textContent='⏸️';
+  cancelAnimationFrame(rafId);
+  rafId = requestAnimationFrame(playLineLoop);
+});
+video.addEventListener('pause', ()=>{
+  playBtn.textContent='▶️';
+  cancelAnimationFrame(rafId);
+  updatePlayLine();
+});
+playBtn.addEventListener('click', ()=>{ stopPreview(); video.paused ? video.play() : video.pause(); });
+backBtn.addEventListener('click', ()=> video.currentTime = Math.max(0, video.currentTime-1));
+fwdBtn.addEventListener('click', ()=> video.currentTime = Math.min(video.duration||0, video.currentTime+1));
+
+tapBox.addEventListener('click', ()=>{ stopPreview(); video.paused ? video.play() : video.pause(); });
+
+document.addEventListener('keydown', e=>{
+  if (e.target.tagName==='SELECT' || e.target.tagName==='INPUT') return;
+  const item = getActive(); if (!item) return;
+  if (e.code==='Space'){ e.preventDefault(); video.paused? video.play():video.pause(); }
+  else if (e.code==='ArrowLeft'){ e.preventDefault(); moveSel(-0.1); }
+  else if (e.code==='ArrowRight'){ e.preventDefault(); moveSel(0.1); }
+  else if (e.key==='Enter' || e.key==='ц'){ e.preventDefault(); okBtn.click(); }
+  else if (e.key==='Backspace'){ e.preventDefault(); badBtn.click(); }
+  else if (e.code==='Tab'){ e.preventDefault(); jumpZone(e.shiftKey ? -1 : 1); }
+  else if (e.key==='p' || e.key==='P' || e.key==='з' || e.key==='З'){ e.preventDefault(); playPreview(); }
+});
+
+/* ============================================================
+   1-SECOND SELECTION WINDOW
+   ============================================================ */
+function positionSel(){
+  const item = getActive(); if (!item || !item.duration) { selBox.style.display='none'; return; }
+  selBox.style.display='block';
+  const dur = item.duration;
+  const x0 = selStart*pxPerSec;
+  const x1 = Math.min(selStart+selLen,dur)*pxPerSec;
+  selBox.style.left = x0+'px';
+  selBox.style.width = Math.max(4,x1-x0)+'px';
+  autoScrollTo(x0, x1);
+}
+function updatePlayLine(){
+  const item = getActive(); if (!item || !item.duration) { playLine.style.display='none'; return; }
+  playLine.style.display='block';
+  playLine.style.left = (video.currentTime*pxPerSec)+'px';
+}
+function autoScrollTo(x0, x1){
+  const left = waveScroll.scrollLeft, right = left + waveScroll.clientWidth;
+  const margin = 24;
+  if (x0 < left+margin) waveScroll.scrollLeft = Math.max(0, x0-margin);
+  else if (x1 > right-margin) waveScroll.scrollLeft = x1 - waveScroll.clientWidth + margin;
+}
+function clampSel(item){
+  selLen = Math.max(MIN_SEL_LEN, Math.min(MAX_SEL_LEN, selLen, Math.max(MIN_SEL_LEN, item.duration)));
+  selStart = Math.max(0, Math.min(selStart, Math.max(0,item.duration-selLen)));
+}
+function moveSel(delta){
+  stopPreview();
+  const item = getActive(); if (!item) return;
+  selStart += delta;
+  clampSel(item);
+  positionSel();
+  updatePlayLine();
+  video.currentTime = selStart;
+}
+nudgeL.addEventListener('click', ()=> moveSel(-0.25));
+nudgeR.addEventListener('click', ()=> moveSel(0.25));
+
+waveCanvas.addEventListener('click', e=>{
+  stopPreview();
+  const item = getActive(); if (!item || !item.duration) return;
+  const rect = waveCanvas.getBoundingClientRect();
+  const xPx = e.clientX-rect.left; // exact pixel offset within the (possibly zoomed) canvas
+  selLen = MAX_SEL_LEN; // clicking the track picks a fresh full-length window; drag the edges afterwards to narrow it
+  selStart = xPx/pxPerSec - selLen/2;
+  clampSel(item);
+  positionSel();
+  updatePlayLine();
+  video.currentTime = selStart;
+});
+
+/* drag the selection box itself — press and hold, drag along the timeline
+   to fine-tune where the 1s window sits */
+selBox.style.pointerEvents = 'auto';
+selBox.style.cursor = 'grab';
+let dragState = null;
+selBox.addEventListener('pointerdown', e=>{
+  const item = getActive(); if (!item || !item.duration) return;
+  stopPreview();
+  e.preventDefault();
+  selBox.setPointerCapture(e.pointerId);
+  selBox.style.cursor = 'grabbing';
+  dragState = { pointerId: e.pointerId, startX: e.clientX, startSel: selStart };
+  // even a plain click (no drag) snaps playback + the green timeline back to the
+  // start of this 1s window, so you can replay exactly what you're about to cut
+  video.currentTime = selStart;
+  updatePlayLine();
+});
+selBox.addEventListener('pointermove', e=>{
+  if (!dragState || dragState.pointerId !== e.pointerId) return;
+  const item = getActive(); if (!item) return;
+  const deltaPx = e.clientX - dragState.startX;
+  selStart = dragState.startSel + deltaPx/pxPerSec;
+  clampSel(item);
+  positionSel();
+  updatePlayLine();
+  video.currentTime = selStart;
+});
+function endSelDrag(e){
+  if (!dragState || (e && e.pointerId !== undefined && dragState.pointerId !== e.pointerId)) return;
+  try{ selBox.releasePointerCapture(dragState.pointerId); }catch(err){}
+  dragState = null;
+  selBox.style.cursor = 'grab';
+}
+selBox.addEventListener('pointerup', endSelDrag);
+selBox.addEventListener('pointercancel', endSelDrag);
+
+/* narrow OR slide the window from either edge — grab an edge and pull it
+   outward (away from the selection) to slide the whole fixed-length window
+   along the timeline; pull it inward (toward the selection) to shrink it
+   from that side. So: right handle → right = slide right, left = shrink;
+   left handle → left = slide left, right = shrink. */
+const selHandleL = $('selHandleL'), selHandleR = $('selHandleR');
+let resizeState = null;
+function startResize(edge){
+  return e=>{
+    const item = getActive(); if (!item || !item.duration) return;
+    stopPreview();
+    e.preventDefault();
+    e.stopPropagation();
+    const el = edge==='l' ? selHandleL : selHandleR;
+    el.setPointerCapture(e.pointerId);
+    resizeState = { edge, pointerId: e.pointerId, startX: e.clientX, startSel: selStart, startLen: selLen };
+  };
+}
+selHandleL.addEventListener('pointerdown', startResize('l'));
+selHandleR.addEventListener('pointerdown', startResize('r'));
+function onResizeMove(e){
+  if (!resizeState || resizeState.pointerId !== e.pointerId) return;
+  const item = getActive(); if (!item) return;
+  const deltaSec = (e.clientX - resizeState.startX)/pxPerSec;
+  if (resizeState.edge === 'r'){
+    if (deltaSec >= 0){
+      // outward (right) — slide the whole window right, length untouched
+      selLen = resizeState.startLen;
+      selStart = resizeState.startSel + deltaSec;
+    } else {
+      // inward (left) — shrink from the right edge, left edge stays put
+      selStart = resizeState.startSel;
+      selLen = resizeState.startLen + deltaSec;
+    }
+  } else {
+    if (deltaSec <= 0){
+      // outward (left) — slide the whole window left, length untouched
+      selLen = resizeState.startLen;
+      selStart = resizeState.startSel + deltaSec;
+    } else {
+      // inward (right) — shrink from the left edge, right edge stays put
+      const anchorRight = resizeState.startSel + resizeState.startLen;
+      let newStart = resizeState.startSel + deltaSec;
+      newStart = Math.min(newStart, anchorRight - MIN_SEL_LEN);
+      selStart = newStart;
+      selLen = anchorRight - selStart;
+    }
+  }
+  clampSel(item);
+  positionSel();
+  video.currentTime = selStart;
+}
+function endResize(e){
+  if (!resizeState || (e && e.pointerId !== undefined && resizeState.pointerId !== e.pointerId)) return;
+  const el = resizeState.edge==='l' ? selHandleL : selHandleR;
+  try{ el.releasePointerCapture(resizeState.pointerId); }catch(err){}
+  resizeState = null;
+}
+selHandleL.addEventListener('pointermove', onResizeMove);
+selHandleR.addEventListener('pointermove', onResizeMove);
+selHandleL.addEventListener('pointerup', endResize);
+selHandleR.addEventListener('pointerup', endResize);
+selHandleL.addEventListener('pointercancel', endResize);
+selHandleR.addEventListener('pointercancel', endResize);
+
+/* ============================================================
+   CUT + BUCKET  (encode exactly 1s @16kHz mono 16-bit WAV)
+   ============================================================ */
+function encodeWav(float32, sampleRate){
+  const n = float32.length;
+  const buf = new ArrayBuffer(44 + n*2);
+  const view = new DataView(buf);
+  const ws=(o,s)=>{ for(let i=0;i<s.length;i++) view.setUint8(o+i, s.charCodeAt(i)); };
+  ws(0,'RIFF'); view.setUint32(4,36+n*2,true); ws(8,'WAVE'); ws(12,'fmt ');
+  view.setUint32(16,16,true); view.setUint16(20,1,true); view.setUint16(22,1,true);
+  view.setUint32(24,sampleRate,true); view.setUint32(28,sampleRate*2,true);
+  view.setUint16(32,2,true); view.setUint16(34,16,true);
+  ws(36,'data'); view.setUint32(40,n*2,true);
+  let off=44;
+  for (let i=0;i<n;i++){ const s=Math.max(-1,Math.min(1,float32[i])); view.setInt16(off, Math.round(s*32767), true); off+=2; }
+  return new Blob([buf], {type:'audio/wav'});
+}
+
+// Общий расчёт текущего окна выбора (в сэмплах при 16кГц) — использовался
+// один в один и в cutSelection(), и в playPreview(); вынесено, чтобы не дублировать.
+function getSelectionWindow(item){
+  clampSel(item);
+  const rate = 16000;
+  const startSmp = Math.round(selStart*rate);
+  const lenSmp = Math.round(selLen*rate);
+  const win = item.samples.slice(startSmp, startSmp+lenSmp);
+  return { win, rate };
+}
+
+function cutSelection(){
+  const item = getActive();
+  if (!item || !item.samples) return null;
+  const { win, rate } = getSelectionWindow(item);
+  return { blob: encodeWav(win,rate), start: selStart, len: selLen, item };
+}
+
+function flash(el){ el.style.transform='scale(.85)'; setTimeout(()=>el.style.transform='',120); }
+
+/* ============================================================
+   PREVIEW  (listen to the exact 1s window before cutting it —
+   plays straight from the decoded samples, no re-encode needed)
+   ============================================================ */
+let previewCtx = null;
+let previewSrc = null;
+let previewRaf = null;
+let previewPlaying = false;
+function stopPreviewLoop(){
+  if (previewRaf) cancelAnimationFrame(previewRaf);
+  previewRaf = null;
+}
+function stopPreview(){
+  if (previewSrc){ try{ previewSrc.onended = null; previewSrc.stop(); }catch(e){} previewSrc = null; }
+  stopPreviewLoop();
+  previewPlaying = false;
+  previewBtn.classList.remove('playing');
+  updatePlayLine(); // snap the green line back to the actual video position
+}
+function playPreview(){
+  if (previewPlaying){ stopPreview(); return; } // second press = stop the loop
+  const item = getActive();
+  if (!item || !item.samples) return;
+  const { win, rate } = getSelectionWindow(item);
+  if (!win.length){ toast('нечего слушать'); return; }
+  if (!video.paused) video.pause(); // don't fight the video's own playhead while previewing
+  if (!previewCtx) previewCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const buf = previewCtx.createBuffer(1, win.length, rate);
+  buf.copyToChannel(win, 0);
+  previewSrc = previewCtx.createBufferSource();
+  previewSrc.buffer = buf;
+  previewSrc.loop = true; // loop the window until the person stops it
+  previewSrc.connect(previewCtx.destination);
+  previewPlaying = true;
+  previewBtn.classList.add('playing');
+  const t0 = previewCtx.currentTime;
+  const previewStart = selStart; // freeze the window start, in case selStart moves later
+  const previewLen = win.length/rate;
+  function loop(){
+    if (!previewPlaying) return;
+    const elapsed = (previewCtx.currentTime - t0) % previewLen; // wraps every loop cycle
+    const pos = previewStart + elapsed;
+    playLine.style.display = 'block';
+    playLine.style.left = (pos*pxPerSec)+'px';
+    timecodeEl.textContent = fmt(pos) + (item.duration ? ' / '+fmt(item.duration) : '') + ' 🎧🔁';
+    previewRaf = requestAnimationFrame(loop);
+  }
+  loop();
+  previewSrc.start();
+}
+previewBtn.addEventListener('click', playPreview);
+
+okBtn.addEventListener('click', ()=>{
+  const cut = cutSelection(); if (!cut) return;
+  const already = cutIndex.get(cutKey(cut.item, cut.start));
+  if (already && already.type==='ok'){ stopPreview(); flash(okBtn); toast('уже сохранено ✅'); return; }
+  stopPreview();
+  evictExistingCut(cut.item, cut.start);
+  const name = `${cut.item.name}_${fmt(cut.start).replace(/[:.]/g,'-')}_ok.wav`;
+  const entry = { name, blob: cut.blob };
+  okBucket.push(entry);
+  cutIndex.set(cutKey(cut.item, cut.start), { type:'ok', entry, item:cut.item, t0:cut.start, t1:cut.start+cut.len });
+  cut.item.cuts.push({ t0: cut.start, t1: cut.start+cut.len });
+  okCount.textContent = okBucket.length;
+  badCount.textContent = badBucket.length;
+  refreshTileBadges(cut.item);
+  flash(okBtn); toast('✅ сохранено · '+okBucket.length);
+  cut.item.touched = true;
+  scheduleMetaSave(cut.item); // пишем в файл сам по себе, не дожидаясь ✕
+  redrawAll(); // stays right where you put it — no auto-jump, you're the one dragging the window
+});
+badBtn.addEventListener('click', ()=>{
+  const cut = cutSelection(); if (!cut) return;
+  const already = cutIndex.get(cutKey(cut.item, cut.start));
+  if (already && already.type==='bad'){ stopPreview(); flash(badBtn); toast('уже сохранено ❌'); return; }
+  stopPreview();
+  evictExistingCut(cut.item, cut.start);
+  const name = `${cut.item.name}_${fmt(cut.start).replace(/[:.]/g,'-')}_bad.wav`;
+  const entry = { name, blob: cut.blob };
+  badBucket.push(entry);
+  cutIndex.set(cutKey(cut.item, cut.start), { type:'bad', entry, item:cut.item, t0:cut.start, t1:cut.start+cut.len });
+  cut.item.cuts.push({ t0: cut.start, t1: cut.start+cut.len });
+  okCount.textContent = okBucket.length;
+  badCount.textContent = badBucket.length;
+  refreshTileBadges(cut.item);
+  flash(badBtn); toast('❌ сохранено · '+badBucket.length);
+  cut.item.touched = true;
+  scheduleMetaSave(cut.item); // пишем в файл сам по себе, не дожидаясь ✕
+  redrawAll(); // stays right where you put it — no auto-jump, you're the one dragging the window
+});
+
+/* ============================================================
+   ZIP DOWNLOAD (JSZip loaded lazily from cdn)
+   ============================================================ */
+let jszipReady = null;
+function loadJSZip(){
+  if (jszipReady) return jszipReady;
+  jszipReady = new Promise((resolve,reject)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = ()=>resolve(window.JSZip);
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+  return jszipReady;
+}
+async function downloadZip(bucket, folder){
+  if (!bucket.length){ toast('пусто'); return; }
+  toast('📦 собираю архив…');
+  const JSZip = await loadJSZip();
+  const zip = new JSZip();
+  const dir = zip.folder(folder);
+  bucket.forEach(f => dir.file(f.name, f.blob));
+  const blob = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  const zipUrl = URL.createObjectURL(blob);
+  a.href = zipUrl;
+  a.download = folder + '.zip';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=> URL.revokeObjectURL(zipUrl), 1000); // отдаём браузеру секунду на старт скачивания, потом освобождаем память
+  toast('📦 скачано · '+bucket.length);
+}
+okZip.addEventListener('click', ()=> downloadZip(okBucket, 'р_правильно'));
+badZip.addEventListener('click', ()=> downloadZip(badBucket, 'р_неправильно'));
+
+</script>
+</body>
+</html>
