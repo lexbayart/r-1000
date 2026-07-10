@@ -286,7 +286,6 @@
   }
   #copyLogsBtn:hover{ background:rgba(255,255,255,.09); }
   #copyLogsBtn.copied{ color:var(--green); border-color:var(--green); }
-  #clearAllDockBtn:hover{ border-color:var(--red); color:var(--red); }
   .toast{
     position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
     background:var(--panel2); border:1px solid var(--hair); padding:8px 16px; border-radius:10px;
@@ -321,7 +320,6 @@
     position:absolute; right:56px; top:0; width:230px; background:var(--panel2);
     border:1px solid var(--hair); border-radius:12px; padding:14px; display:none;
     font-size:12px; color:var(--muted); z-index:40;
-    max-height:min(80vh, 520px); overflow-y:auto;
   }
   #settingsPop.show{display:block;}
   #settingsPop label{display:block; margin-bottom:10px;}
@@ -329,7 +327,7 @@
   #settingsPop .row{display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px;}
 
   input[type=range]{
-    -webkit-appearance:none; width:100%; height:3px; background:var(--hair); border-radius:2px; outline:none;
+    -webkit-appearance:none; height:3px; background:var(--hair); border-radius:2px; outline:none;
   }
   input[type=range]::-webkit-slider-thumb{
     -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--green); cursor:pointer;
@@ -355,8 +353,6 @@
   #nnPanel.show{display:block;}
   #nnPanel::-webkit-scrollbar{width:6px;}
   #nnPanel::-webkit-scrollbar-thumb{background:var(--hair); border-radius:3px;}
-  #settingsPop::-webkit-scrollbar{width:6px;}
-  #settingsPop::-webkit-scrollbar-thumb{background:var(--hair); border-radius:3px;}
   #waveArea.nn-open{ border-top-left-radius:0; border-top-right-radius:0; border-top:none; }
 
   #nnHead{
@@ -405,16 +401,15 @@
   .nn-field .flabel .fval{font-family:var(--mono); color:var(--green); font-size:11px;}
   .nn-field .fhint{font-size:9.5px; color:var(--muted); margin-top:4px; line-height:1.35;}
   .nn-field select{
-    width:auto; min-width:64px; max-width:100%; background:var(--panel); color:var(--ink); border:1px solid var(--hair);
+    width:100%; background:var(--panel); color:var(--ink); border:1px solid var(--hair);
     border-radius:6px; padding:5px 8px; font-family:var(--sans); font-size:11.5px; cursor:pointer;
   }
   .nn-field select:focus{outline:none; border-color:var(--green);}
-  .toggle-row{
+  .nn-toggle{
     display:flex; align-items:center; gap:8px; cursor:pointer; font-size:11.5px; color:var(--ink);
     user-select:none;
   }
-  .toggle-row input{accent-color:var(--green); width:14px; height:14px; cursor:pointer;}
-  #settingsPop .hint{font-size:9.5px; color:var(--muted); margin:-6px 0 10px 22px; line-height:1.35;}
+  .nn-toggle input{accent-color:var(--green); width:14px; height:14px; cursor:pointer;}
 
   @media (max-width: 640px){
     #waveArea{height:138px;}
@@ -508,7 +503,7 @@
                 </div>
               </div>
               <div class="nn-col">
-                <label class="toggle-row">
+                <label class="nn-toggle">
                   <input type="checkbox" id="chk-nn-norm">
                   <span>Нормализация пика громкости</span>
                 </label>
@@ -563,12 +558,6 @@
           <input type="range" id="gainRange" min="1" max="6" step="0.1" value="1">
         </label>
 
-        <label class="toggle-row" id="previewQualityRow">
-          <input type="checkbox" id="chk-preview-original" checked>
-          <span>🎧 прослушка в оригинальном качестве</span>
-        </label>
-        <div class="hint">Выключи, чтобы кнопка 🎧 играла звук так, как его слышит нейросеть — 16кГц моно, без частот выше ~8кГц. На сохранённые «✅/❌» .wav это не влияет — они всегда пишутся в оригинальном качестве видео.</div>
-
         <div id="hotkeysList">
           <div class="hk"><span>play/pause</span><kbd>Space</kbd></div>
           <div class="hk"><span>окно на 0.1с</span><kbd>←</kbd><kbd>→</kbd></div>
@@ -580,15 +569,7 @@
         </div>
 
         <button id="copyLogsBtn" type="button">📋 Скопировать логи</button>
-
-        <label class="toggle-row" id="clearScopeRow">
-          <input type="checkbox" id="chk-clear-exports">
-          <span>🗑 очистка холста удаляет и архив на экспорт</span>
-        </label>
       </div>
-    </div>
-    <div class="dockbtn" id="clearAllDockBtn" title="Очистить холст (режим — переключатель в ⚙️)">
-      🗑
     </div>
   </div>
 
@@ -712,7 +693,7 @@ class EdgeImpulseClassifier {
       Module.onRuntimeInitialized = () => {
         classifierInitialized = true;
         const ret = Module.init();
-        if (typeof ret === 'number' && ret !== 0) return reject(new Error('init() failed: '+ret));
+        if (typeof ret === 'number' && ret !== 0) return reject('init() failed: '+ret);
         resolve();
       };
     });
@@ -1227,9 +1208,6 @@ const slNnNormMin   = $('sl-nn-norm-min'),  valNnNormMin   = $('val-nn-norm-min'
 const slNnNormTarget= $('sl-nn-norm-target'),valNnNormTarget=$('val-nn-norm-target');
 const copyLogsBtn = $('copyLogsBtn');
 const gainRange = $('gainRange');
-const chkPreviewOriginal = $('chk-preview-original');
-const chkClearExports = $('chk-clear-exports');
-const clearAllDockBtn = $('clearAllDockBtn');
 const toastEl = $('toast');
 const ctx2d = waveCanvas.getContext('2d');
 
@@ -1339,14 +1317,7 @@ async function loadModelWithProgress(){
   NUM_SAMPLES = props.frame_sample_count || 16000;
   LABELS = labelsFromProps(props);
   TARGET_LABEL = LABELS.find(l => /^r$/i.test(l)) || LABELS.find(l => /[rр]/i.test(l)) || LABELS[0] || null;
-  labelSelect.innerHTML = '';
-  LABELS.forEach(l => {
-    const opt = document.createElement('option');
-    opt.value = l;
-    opt.textContent = l;
-    if (l === TARGET_LABEL) opt.selected = true;
-    labelSelect.appendChild(opt);
-  });
+  labelSelect.innerHTML = LABELS.map(l => `<option value="${l}" ${l===TARGET_LABEL?'selected':''}>${l}</option>`).join('');
   hideScanProgress();
   toast('🧠 модель готова');
 }
@@ -1365,23 +1336,6 @@ loadModelWithProgress().catch(err=>{
 labelSelect.addEventListener('change', ()=>{ TARGET_LABEL = labelSelect.value; scheduleReanalyze(); });
 const throttledRedrawAll = rafThrottle(redrawAll); // ползунки шлют event 'input' очень часто — тяжёлую перерисовку ограничиваем кадром, а значение и подпись обновляем сразу
 gainRange.addEventListener('input', ()=>{ GAIN_BOOST = parseFloat(gainRange.value); throttledRedrawAll(); });
-
-// 🎧-прослушка: оригинальное качество видео vs то, что реально видит нейросеть
-// (16кГц моно). Сохранённых .wav это не касается — cutSelection() всегда берёт
-// оригинал, см. getSelectionWindow(). Только для этой кнопки, только для уха.
-const PREVIEW_ORIGINAL_KEY = 'rEditorPreviewOriginal';
-let previewOriginal = true;
-try {
-  const savedPref = localStorage.getItem(PREVIEW_ORIGINAL_KEY);
-  if (savedPref !== null) previewOriginal = savedPref === '1';
-} catch(e){ /* localStorage unavailable — просто останемся на дефолте */ }
-chkPreviewOriginal.checked = previewOriginal;
-chkPreviewOriginal.addEventListener('change', ()=>{
-  previewOriginal = chkPreviewOriginal.checked;
-  try{ localStorage.setItem(PREVIEW_ORIGINAL_KEY, previewOriginal ? '1' : '0'); }catch(e){}
-});
-clearAllDockBtn.addEventListener('click', ()=> clearAllItems(chkClearExports.checked));
-
 gear.addEventListener('click', (e)=>{ e.stopPropagation(); settingsPop.classList.toggle('show'); nnPanel.classList.remove('show'); waveArea.classList.remove('nn-open'); });
 copyLogsBtn.addEventListener('click', async (e)=>{
   e.stopPropagation();
@@ -1441,11 +1395,7 @@ function renderNnPresets(){
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'nn-preset-btn' + (activeNnPreset===p.id ? ' active' : '');
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'name'; nameSpan.textContent = p.name;
-    const tagSpan = document.createElement('span');
-    tagSpan.className = 'tag'; tagSpan.textContent = p.tag;
-    btn.append(nameSpan, tagSpan);
+    btn.innerHTML = `<span class="name">${p.name}</span><span class="tag">${p.tag}</span>`;
     btn.addEventListener('click', ()=> applyNnPreset(p));
     nnPresetsEl.appendChild(btn);
   });
@@ -1658,10 +1608,8 @@ if (openFolderBtn){
    QUEUE
    ============================================================ */
 function addVideo(file, handle){
-  // canPlayType() — чистый запрос к движку, не трогает то, что сейчас загружено/играет
-  // в video, так что безопасно переиспользовать основной элемент вместо создания
-  // и тут же выбрасывания отдельного <video> на каждый добавляемый файл.
-  const canPlay = video.canPlayType(file.type) || '(пусто = браузер не уверен/не поддерживает)';
+  const probe = document.createElement('video');
+  const canPlay = probe.canPlayType(file.type) || '(пусто = браузер не уверен/не поддерживает)';
   logEvent('ADD-FILE', `name="${file.name}" size=${file.size}B (${(file.size/1024/1024).toFixed(2)}MB) type="${file.type}" lastModified=${file.lastModified} canPlayType="${canPlay}" writeHandle=${!!handle}`);
   const id = 'v'+Date.now()+Math.random().toString(36).slice(2,7);
   const url = URL.createObjectURL(file);
@@ -1696,17 +1644,8 @@ const tileEls = new Map(); // id -> {el, videoEl, progI, aspect, curW, curH}
 
 let tileDragState = null;
 
-function usableRect(n){
-  // marginX/dockReserve — место под плавающий док справа, как было всегда.
-  // marginTop/marginBottom — доп. запас под #transport (сверху) и #cutBar+
-  // #waveArea (снизу) нужен только когда плиток 1-2: именно тогда (особенно
-  // с вертикальным видео) плитка растягивается почти на весь экран и лезет
-  // своими углами (❌-удаление снизу, ✅/❌-бейджики сверху) под эти панели.
-  // При 3+ плитках каждая и так намного меньше — до краёв не дотягивается,
-  // и урезать им экран без нужды не хочется (раньше сетка тут была плотнее).
-  const marginX = 14, dockReserve = 96;
-  const marginTop = (n <= 2) ? 80 : 14;
-  const marginBottom = (n <= 2) ? 224 : 14;
+function usableRect(){
+  const marginX = 14, marginTop = 14, marginBottom = 14, dockReserve = 96; // 96px — резерв под правый плавающий док
   return {
     x: marginX, y: marginTop,
     w: Math.max(200, window.innerWidth - marginX*2 - dockReserve),
@@ -1779,10 +1718,10 @@ function pickRowCount(entries, area){
 }
 
 function layoutTiles(){
+  const area = usableRect();
   const entries = queue.map(item=>({item, t: tileEls.get(item.id)})).filter(x=>x.t);
   const n = entries.length;
   if (!n) return;
-  const area = usableRect(n);
 
   const rows = pickRowCount(entries, area);
   const counts = splitRows(n, rows);
@@ -2019,9 +1958,8 @@ async function removeItem(id){
   // сохранилось. Теперь сперва спрашиваем.
   const writeResult = await writeMetaToFile(item);
   if (writeResult === 'error'){
-    const safeName = item.name.replace(/[\n\r]/g, ' '); // имя файла может содержать переносы строк — не даём им сломать вид confirm()
     const proceed = confirm(
-      `Не удалось вшить пометки «${safeName}» в сам видеофайл (см. уведомление выше).\n\n`+
+      `Не удалось вшить пометки «${item.name}» в сам видеофайл (см. уведомление выше).\n\n`+
       `Вырезанные .wav-кусочки не пропадут — они останутся в общем архиве на выгрузку.\n`+
       `Но если убрать видео сейчас, при следующем открытии этого файла программа не будет\n`+
       `знать, что он уже проверен — пунктирных рамок прошлого прогона не будет.\n\n`+
@@ -2046,50 +1984,6 @@ async function removeItem(id){
     else { document.body.classList.remove('has-video'); video.removeAttribute('src'); }
   }
   renderRail();
-}
-
-// Массовая версия removeItem() — «Очистить всё» в ⚙️. В отличие от removeItem()
-// не спрашивает confirm() на каждый файл по отдельности при неудаче записи меток
-// (это было бы невыносимо для десятков видео разом) — просто best-effort пишет,
-// что может, и идёт дальше; сами сохранённые ✅/❌ .wav это в любом случае не теряет.
-// alsoExports=true — дополнительно стирает okBucket/badBucket (архив на скачивание).
-async function clearAllItems(alsoExports){
-  if (!queue.length && !okBucket.length && !badBucket.length){ toast('и так пусто'); return; }
-  const msg = alsoExports
-    ? `Удалить все видео с холста (${queue.length}) И весь архив на скачивание (✅ ${okBucket.length} · ❌ ${badBucket.length})?\n\nЭто нельзя отменить.`
-    : `Убрать все видео с холста (${queue.length})?\n\nАрхив на скачивание (✅ ${okBucket.length} · ❌ ${badBucket.length}) не тронется — останется ждать скачивания.\n\nЭто нельзя отменить.`;
-  if (!confirm(msg)) return;
-
-  settingsPop.classList.remove('show');
-  stopPreview();
-  if (!video.paused) video.pause();
-
-  const items = [...queue]; // снимок — queue ниже будет очищена
-  for (const item of items){
-    const pending = pendingSaveTimers.get(item.id);
-    if (pending){ clearTimeout(pending); pendingSaveTimers.delete(item.id); }
-    dirtyItems.delete(item.id);
-    try { await writeMetaToFile(item); } // best-effort, без confirm() — см. комментарий выше
-    catch(e){ logEvent('CLEAR-ALL-WRITE-FAIL', `"${item.name}" error="${e && e.message}"`); }
-    try { URL.revokeObjectURL(item.url); } catch(e){}
-    item.removed = true; // фоновый анализ/декод (если ещё шёл) на это сориентируется и остановится
-  }
-
-  queue.length = 0;
-  activeId = null;
-  cutIndex.clear();
-  document.body.classList.remove('has-video');
-  video.removeAttribute('src');
-
-  if (alsoExports){
-    okBucket.length = 0;
-    badBucket.length = 0;
-    okCount.textContent = 0;
-    badCount.textContent = 0;
-  }
-
-  renderRail();
-  toast(alsoExports ? '🗑 холст и архив очищены' : '🗑 холст очищен, архив на месте');
 }
 
 function getActive(){ return queue.find(q=>q.id===activeId) || null; }
@@ -2124,12 +2018,7 @@ function setActive(id){
   activeId = id;
   const item = getActive();
   if (!item) return;
-  if (item.samples && item.needsRescan && !item.analyzing){ item.needsRescan = false; reanalyzeActive(false); } // params changed while this clip wasn't active — catch it up now
-  // если item.analyzing===true — оставляем needsRescan=true как есть: reanalyzeActive() всё равно
-  // тут же вышел бы по своему же гварду item.analyzing, ничего не сделав, а флаг был бы потерян.
-  // Раз мы уже сделали это видео активным (activeId=id выше), needsRescan подхватит
-  // проверка в конце runClassification (item.needsRescan && item.id===activeId), когда
-  // текущий проход анализа доиграет до конца — см. [NN-PANEL].
+  if (item.samples && item.needsRescan){ item.needsRescan = false; reanalyzeActive(false); } // params changed while this clip wasn't active — catch it up now
   positionVideoOverActiveTile();
   video.src = item.url;
   video.currentTime = 0;
@@ -2170,16 +2059,12 @@ function computeFit(item){
    exports trigger it a lot). It's a native crash, not a JS exception, so
    it can't be try/caught or recovered from after the fact.
 
-   Instead we play the file in a hidden <audio> element and tap the audio
+   Instead we play the file in a hidden, muted <video> and tap the audio
    graph with a ScriptProcessorNode while it plays — this reuses the exact
-   same decoder that already proved it can open the file (metadata loaded
-   fine), so it doesn't hit the crashing code path at all. We use <audio>
-   rather than <video> here because we only need the sound: a <video>
-   element would also decode video frames nobody ever sees (the element
-   is off-screen), which is wasted decoder work that can compete with —
-   and visibly stutter or freeze — whichever clip the user is actually
-   watching at the same time. The trade-off: it takes as long as the
-   clip's real duration to capture, instead of being near-instant.
+   same decoder that already proved it can open the file (video metadata
+   loaded fine), so it doesn't hit the crashing code path at all. The
+   trade-off: it takes as long as the clip's real duration to capture,
+   instead of being near-instant.
    ============================================================ */
 // «проблемные» видео (для которых быстрый decodeAudioData не сработал) обрабатываются
 // медленным способом — реальным проигрыванием в фоне. Если таких видео среди
@@ -2214,17 +2099,13 @@ function captureAudioViaPlayback(item){
     }
     kickWatchdog();
     try {
-      // <audio>, не <video>: нужна только звуковая дорожка. Полноценный <video> тут
-      // декодировал бы ещё и видеокадры впустую (их всё равно никто не увидит — элемент
-      // за экраном) — а это лишняя нагрузка на видеодекодер, из-за которой может
-      // подтормаживать/подвисать картинка АКТИВНОГО видео, которое юзер в этот момент
-      // реально смотрит, хотя его звук и таймкод при этом идут нормально своим ходом.
-      v = document.createElement('audio');
+      v = document.createElement('video');
       // NB: intentionally NOT muted (see note below) and intentionally playbackRate=1 —
       // строго реальное воспроизведение 1:1, без ускорения/растяжения. Для датасета
       // обучающих сэмплов исходный сигнал нельзя трогать никакими трюками со скоростью,
       // даже теоретически «безопасными» для расчёта — не стоит того риска.
-      v.preload = 'auto';
+      v.playsInline = true; v.preload = 'auto';
+      v.style.cssText = 'position:fixed; left:-9999px; top:-9999px; width:2px; height:2px;';
       v.src = item.url;
       document.body.appendChild(v);
       ctx = new (window.AudioContext||window.webkitAudioContext)();
@@ -2239,7 +2120,6 @@ function captureAudioViaPlayback(item){
           procNode.connect(silentGain);
           silentGain.connect(ctx.destination);
           procNode.onaudioprocess = e=>{
-            if (item.removed){ fail(new Error('видео убрано во время захвата звука')); return; }
             kickWatchdog(); // звук реально идёт прямо сейчас — сторожу пока не нужно срабатывать
             const l = e.inputBuffer.getChannelData(0);
             const r = e.inputBuffer.numberOfChannels>1 ? e.inputBuffer.getChannelData(1) : l;
@@ -2318,14 +2198,12 @@ function captureAudioViaRecorder(item){
     }
     kickWatchdog();
     try {
-      // <audio>, не <video> — та же причина, что и в captureAudioViaPlayback выше:
-      // нужна только звуковая дорожка (см. audioTracks ниже), видеокадры декодировать
-      // незачем и вредно для плавности активного видео, которое юзер смотрит параллельно.
-      v = document.createElement('audio');
-      v.preload = 'auto';
+      v = document.createElement('video');
+      v.playsInline = true; v.preload = 'auto';
+      v.style.cssText = 'position:fixed; left:-9999px; top:-9999px; width:2px; height:2px;';
       v.src = item.url;
       document.body.appendChild(v);
-      v.ontimeupdate = () => { if (item.removed){ fail(new Error('видео убрано во время захвата звука')); return; } kickWatchdog(); };
+      v.ontimeupdate = () => kickWatchdog(); // время реально идёт — сторожу пока не нужно срабатывать
       v.onloadedmetadata = () => {
         try {
           if (!v.captureStream){ fail(new Error('captureStream() не поддерживается этим браузером')); return; }
@@ -2428,14 +2306,6 @@ async function processItem(item){
       }
     }
 
-    // Сохраняем сырые сэмплы как есть — оригинальная частота дискретизации (обычно
-    // 44.1/48кГц), моно (канал 0). Это ЕДИНСТВЕННОЕ, из чего теперь режутся и
-    // сохранённые .wav (cutSelection), и 🎧-прослушка в оригинальном качестве —
-    // item.samples ниже это урезанная копия под 16кГц специально для нейросети,
-    // для сохранения на диск она больше не используется.
-    item.rawSamples = rawSamples;
-    item.rawRate = rawRate;
-
     const offline = new OfflineAudioContext(1, Math.ceil(rawSamples.length*16000/rawRate)+1, 16000);
     const tmpBuf = offline.createBuffer(1, rawSamples.length, rawRate);
     tmpBuf.copyToChannel(rawSamples, 0);
@@ -2472,7 +2342,6 @@ async function processItem(item){
     await runClassification(item, { toast:true });
   } catch(err){
     console.error(err);
-    if (item.removed) return; // видео убрали намеренно — это ожидаемая остановка, не ошибка, не тревожим статус-строку
     logEvent('DECODE-FAIL', `name="${item.name}" file.type="${item.file.type}" file.size=${item.file.size}B error="${err && err.message}" stack="${err && err.stack}"`);
     item.analyzing = false;
     statusEl.textContent = '⚠️ не удалось прочитать аудио этого видео (см. логи в ⚙️)';
@@ -2827,17 +2696,6 @@ function drawRuler(item){
   rulerCtx.lineWidth = 1;
   const tStart = Math.max(0, Math.floor(visL/pxs) - 1);
   const tEnd = Math.ceil(visR/pxs) + 1;
-
-  // "1:05" и подобные заметно шире, чем просто "5" — на видео дольше минуты
-  // подписи на каждой секунде при мелком зуме начинают наезжать друг на друга.
-  // Меряем реальную ширину самой длинной подписи, которая может встретиться в
-  // видимом диапазоне, и если ей не хватает места на шаге в 1с — подписываем
-  // только каждую 10-ю секунду (засечки при этом остаются на каждой секунде,
-  // просто без текста). Приблизишь дорожку — раздвинется и снова вернутся
-  // подписи на каждую секунду.
-  const worstLabelW = rulerCtx.measureText(rulerLabel(tEnd)).width;
-  const labelStep = (worstLabelW + 6 > pxs) ? 10 : 1;
-
   for (let t=tStart; t<=tEnd; t++){
     const x = t*pxs;
     if (x < visL-2 || x > visR+2) continue;
@@ -2845,7 +2703,7 @@ function drawRuler(item){
     rulerCtx.moveTo(x+0.5, 0);
     rulerCtx.lineTo(x+0.5, 4);
     rulerCtx.stroke();
-    if (pxs >= 22 && t % labelStep === 0) rulerCtx.fillText(rulerLabel(t), x, 6);
+    if (pxs >= 22) rulerCtx.fillText(rulerLabel(t), x, 6);
   }
 }
 
@@ -3043,15 +2901,11 @@ function endSelDrag(e){
 selBox.addEventListener('pointerup', endSelDrag);
 selBox.addEventListener('pointercancel', endSelDrag);
 
-/* resize OR slide the window from either edge. Pulling an edge inward
-   (toward the middle) shrinks the window from that side, same as before.
-   Pulling it back outward now REGROWS it from that same side (the opposite
-   edge stays anchored) up to the 1s cap (MAX_SEL_LEN) — it no longer jumps
-   straight into sliding just because the pointer moved outward. Only once
-   the window is back at full length does continuing to pull outward switch
-   seamlessly into sliding the whole fixed-length window along the timeline.
-   So: right handle → left = shrink, right = regrow then slide right;
-   left handle → right = shrink, left = regrow then slide left. */
+/* narrow OR slide the window from either edge — grab an edge and pull it
+   outward (away from the selection) to slide the whole fixed-length window
+   along the timeline; pull it inward (toward the selection) to shrink it
+   from that side. So: right handle → right = slide right, left = shrink;
+   left handle → left = slide left, right = shrink. */
 const selHandleL = $('selHandleL'), selHandleR = $('selHandleR');
 let resizeState = null;
 function startResize(edge){
@@ -3072,20 +2926,28 @@ function onResizeMove(e){
   const item = getActive(); if (!item) return;
   const deltaSec = (e.clientX - resizeState.startX)/pxPerSec;
   if (resizeState.edge === 'r'){
-    // right edge always follows the pointer directly. Shrinking, regrowing
-    // back up to the 1s cap, and (once at that cap) sliding right are all
-    // literally the same motion — only how much of it shows up in selLen
-    // vs selStart differs, via the MAX_SEL_LEN clamp below.
-    const rawRight = resizeState.startSel + resizeState.startLen + deltaSec;
-    selLen = Math.min(rawRight - resizeState.startSel, MAX_SEL_LEN);
-    selStart = rawRight - selLen;
+    if (deltaSec >= 0){
+      // outward (right) — slide the whole window right, length untouched
+      selLen = resizeState.startLen;
+      selStart = resizeState.startSel + deltaSec;
+    } else {
+      // inward (left) — shrink from the right edge, left edge stays put
+      selStart = resizeState.startSel;
+      selLen = resizeState.startLen + deltaSec;
+    }
   } else {
-    // left edge follows the pointer directly too (shrink / regrow / slide
-    // left), just guarded so shrinking can't drag it past the right edge.
-    const anchorRight = resizeState.startSel + resizeState.startLen;
-    const rawLeft = Math.min(resizeState.startSel + deltaSec, anchorRight - MIN_SEL_LEN);
-    selLen = Math.min(anchorRight - rawLeft, MAX_SEL_LEN);
-    selStart = rawLeft;
+    if (deltaSec <= 0){
+      // outward (left) — slide the whole window left, length untouched
+      selLen = resizeState.startLen;
+      selStart = resizeState.startSel + deltaSec;
+    } else {
+      // inward (right) — shrink from the left edge, right edge stays put
+      const anchorRight = resizeState.startSel + resizeState.startLen;
+      let newStart = resizeState.startSel + deltaSec;
+      newStart = Math.min(newStart, anchorRight - MIN_SEL_LEN);
+      selStart = newStart;
+      selLen = anchorRight - selStart;
+    }
   }
   clampSel(item);
   positionSel();
@@ -3122,26 +2984,21 @@ function encodeWav(float32, sampleRate){
   return new Blob([buf], {type:'audio/wav'});
 }
 
-// Общий расчёт текущего окна выбора — использовался один в один и в cutSelection(),
-// и в playPreview(); вынесено, чтобы не дублировать.
-// useOriginal=true  → режем из item.rawSamples на их родной частоте (реальное
-//                      качество видео) — так всегда пишутся сохранённые .wav.
-// useOriginal=false → режем из item.samples на 16кГц — ровно то, что видит нейросеть.
-function getSelectionWindow(item, useOriginal){
+// Общий расчёт текущего окна выбора (в сэмплах при 16кГц) — использовался
+// один в один и в cutSelection(), и в playPreview(); вынесено, чтобы не дублировать.
+function getSelectionWindow(item){
   clampSel(item);
-  const haveRaw = useOriginal && item.rawSamples && item.rawRate;
-  const src = haveRaw ? item.rawSamples : item.samples;
-  const rate = haveRaw ? item.rawRate : 16000;
+  const rate = 16000;
   const startSmp = Math.round(selStart*rate);
   const lenSmp = Math.round(selLen*rate);
-  const win = src.slice(startSmp, startSmp+lenSmp);
+  const win = item.samples.slice(startSmp, startSmp+lenSmp);
   return { win, rate };
 }
 
 function cutSelection(){
   const item = getActive();
   if (!item || !item.samples) return null;
-  const { win, rate } = getSelectionWindow(item, true); // сохранение — всегда оригинальное качество, без исключений
+  const { win, rate } = getSelectionWindow(item);
   return { blob: encodeWav(win,rate), start: selStart, len: selLen, item };
 }
 
@@ -3170,7 +3027,7 @@ function playPreview(){
   if (previewPlaying){ stopPreview(); return; } // second press = stop the loop
   const item = getActive();
   if (!item || !item.samples) return;
-  const { win, rate } = getSelectionWindow(item, previewOriginal);
+  const { win, rate } = getSelectionWindow(item);
   if (!win.length){ toast('нечего слушать'); return; }
   if (!video.paused) video.pause(); // don't fight the video's own playhead while previewing
   if (!previewCtx) previewCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -3248,7 +3105,7 @@ function loadJSZip(){
     const s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
     s.onload = ()=>resolve(window.JSZip);
-    s.onerror = () => { jszipReady = null; reject(new Error('JSZip CDN unavailable')); }; // не кэшируем неудачу — следующий вызов (например повторный клик) попробует заново, а не повторит тот же отказ навсегда
+    s.onerror = reject;
     document.head.appendChild(s);
   });
   return jszipReady;
@@ -3256,23 +3113,18 @@ function loadJSZip(){
 async function downloadZip(bucket, folder){
   if (!bucket.length){ toast('пусто'); return; }
   toast('📦 собираю архив…');
-  try {
-    const JSZip = await loadJSZip();
-    const zip = new JSZip();
-    const dir = zip.folder(folder);
-    bucket.forEach(f => dir.file(f.name, f.blob));
-    const blob = await zip.generateAsync({type:'blob'});
-    const a = document.createElement('a');
-    const zipUrl = URL.createObjectURL(blob);
-    a.href = zipUrl;
-    a.download = folder + '.zip';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(()=> URL.revokeObjectURL(zipUrl), 1000); // отдаём браузеру секунду на старт скачивания, потом освобождаем память
-    toast('📦 скачано · '+bucket.length);
-  } catch(err){
-    logEvent('ZIP-DOWNLOAD-FAIL', `folder="${folder}" bucketSize=${bucket.length} error="${err && err.message || err}"`);
-    toast('⚠️ не удалось собрать архив — проверь интернет и попробуй ещё раз');
-  }
+  const JSZip = await loadJSZip();
+  const zip = new JSZip();
+  const dir = zip.folder(folder);
+  bucket.forEach(f => dir.file(f.name, f.blob));
+  const blob = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  const zipUrl = URL.createObjectURL(blob);
+  a.href = zipUrl;
+  a.download = folder + '.zip';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=> URL.revokeObjectURL(zipUrl), 1000); // отдаём браузеру секунду на старт скачивания, потом освобождаем память
+  toast('📦 скачано · '+bucket.length);
 }
 okZip.addEventListener('click', ()=> downloadZip(okBucket, 'р_правильно'));
 badZip.addEventListener('click', ()=> downloadZip(badBucket, 'р_неправильно'));
